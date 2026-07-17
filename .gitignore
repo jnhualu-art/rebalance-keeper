@@ -28,3 +28,9 @@ Thumbs.db
 logs/
 __pycache__/
 *.pyc
+
+# Demo data exceptions (keep these tracked for BUIDL submission)
+!logs/audit.jsonl
+!logs/demo_session.txt
+!logs/demo_history.json
+!logs/demo_summary.json

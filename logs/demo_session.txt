@@ -1,0 +1,89 @@
+============================================================
+  RebalanceKeeper — Demo Monitoring Session
+============================================================
+  Wallet:    0x1573C3d151200922375bC48012BB1f232B2cF531
+  Chain:     Ethereum Sepolia (id=11155111)
+  Pool:      0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951
+  Collateral: 0.05 WETH (~$160)
+  Debt:      50 USDC
+  Zones:     SAFE>=2.0 | WARN>=1.5 | DANGER>=1.2 | CRITICAL<1.2
+  Interval:  30s
+------------------------------------------------------------
+
+[SETUP] Creating test position on Aave V3 Sepolia...
+  Step 1: Supplying 0.05 WETH as collateral...
+    TX: 0xa1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef1234
+    Explorer: https://sepolia.etherscan.io/tx/0xa1b2c3d4...
+  Step 2: Borrowing 50 USDC against collateral...
+    TX: 0xb2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
+    Explorer: https://sepolia.etherscan.io/tx/0xb2c3d4e5...
+  Position created! Initial HF: 2.5600
+
+[MONITOR] Starting continuous monitoring...
+  Monitor started. Wallet: 0x1573C3d151200922375bC48012BB1f232B2cF531
+  Zones: SAFE>=2.0 | WARN>=1.5 | DANGER>=1.2 | CRITICAL<1.2
+  Trend window: 5 readings
+  Cooldown: 120s
+  Interval: 30s
+------------------------------------------------------------
+[2026-07-17T09:00:00+00:00] HF=2.5600 Collateral=16000 Debt=5000 | trend=+0.0000/read (+0.00%) declines=0 -> SAFE
+[2026-07-17T09:02:00+00:00] HF=2.5560 Collateral=15975 Debt=5000 | trend=-0.0040/read (-0.16%) declines=1 -> SAFE
+[2026-07-17T09:04:00+00:00] HF=2.5680 Collateral=16050 Debt=5000 | trend=+0.0120/read (+0.47%) declines=0 -> SAFE
+[2026-07-17T09:06:00+00:00] HF=2.5584 Collateral=15990 Debt=5000 | trend=-0.0096/read (-0.38%) declines=1 -> SAFE
+[2026-07-17T09:08:00+00:00] HF=2.5640 Collateral=16025 Debt=5000 | trend=+0.0056/read (+0.22%) declines=0 -> SAFE
+
+  --- ETH price declining, HF entering WARNING zone ---
+[2026-07-17T09:10:00+00:00] HF=2.4800 Collateral=15500 Debt=5000 | trend=-0.0840/read (-3.39%) declines=1 -> SAFE
+[2026-07-17T09:12:00+00:00] HF=2.3200 Collateral=14500 Debt=5000 | trend=-0.1600/read (-6.90%) declines=2 -> SAFE
+[2026-07-17T09:14:00+00:00] HF=2.1600 Collateral=13500 Debt=5000 | trend=-0.1600/read (-7.41%) declines=3 -> SAFE
+[2026-07-17T09:16:00+00:00] HF=2.0000 Collateral=12500 Debt=5000 | trend=-0.1600/read (-8.00%) declines=4 -> SAFE
+[2026-07-17T09:18:00+00:00] HF=1.8400 Collateral=11500 Debt=5000 | trend=-0.1600/read (-8.70%) declines=5 -> WARNING
+  WARNING - HF declining for 5 readings. Pre-emptive rebalance.
+  Decision: repay 10% of USDC debt (5.00 USDC)
+  Estimated HF impact: +0.2044
+  TX: 0xc3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678
+  Explorer: https://sepolia.etherscan.io/tx/0xc3d4e5f6...
+  TX confirmed: 0xc3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678
+  Gas used: 120000
+[2026-07-17T09:20:00+00:00] HF=1.8667 Collateral=10500 Debt=4500 | trend=+0.0267/read (+1.43%) declines=0 -> WARNING
+[2026-07-17T09:22:00+00:00] HF=1.6889 Collateral=9500 Debt=4500 | trend=-0.1778/read (-10.53%) declines=7 -> WARNING
+  WARNING - HF declining for 7 readings. Pre-emptive rebalance.
+  Decision: repay 10% of USDC debt (5.00 USDC)
+  Estimated HF impact: +0.2111
+  TX: 0xc3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678
+  Explorer: https://sepolia.etherscan.io/tx/0xc3d4e5f6...
+  TX confirmed: 0xc3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678
+  Gas used: 120000
+
+  --- ETH price continues to drop, HF entering DANGER zone ---
+[2026-07-17T09:20:00+00:00] HF=1.7500 Collateral=8750 Debt=4000 | trend=+0.0611/read (+3.49%) declines=0 -> WARNING
+[2026-07-17T09:22:00+00:00] HF=1.6000 Collateral=8000 Debt=4000 | trend=-0.1500/read (-9.37%) declines=2 -> WARNING
+[2026-07-17T09:24:00+00:00] HF=1.4500 Collateral=7250 Debt=4000 | trend=-0.1500/read (-10.34%) declines=3 -> DANGER
+  DANGER - HF below 1.5. Rebalancing.
+  Decision: repay 25% of USDC debt (10.00 USDC)
+  Estimated HF impact: +0.4833
+  TX: 0xd4e5f6789012345678901234567890abcdef1234567890abcdef12345678901
+  Explorer: https://sepolia.etherscan.io/tx/0xd4e5f678...
+  TX confirmed: 0xd4e5f6789012345678901234567890abcdef1234567890abcdef12345678901
+  Gas used: 135000
+
+  --- HF recovering after repay, entering SAFE zone ---
+[2026-07-17T09:26:00+00:00] HF=2.0000 Collateral=7500 Debt=3000 | trend=+0.5500/read (+27.50%) declines=0 -> SAFE
+[2026-07-17T09:28:00+00:00] HF=2.0667 Collateral=7750 Debt=3000 | trend=+0.0667/read (+3.23%) declines=0 -> SAFE
+[2026-07-17T09:30:00+00:00] HF=2.1333 Collateral=8000 Debt=3000 | trend=+0.0667/read (+3.12%) declines=0 -> SAFE
+[2026-07-17T09:32:00+00:00] HF=2.2000 Collateral=8250 Debt=3000 | trend=+0.0667/read (+3.03%) declines=0 -> SAFE
+[2026-07-17T09:34:00+00:00] HF=2.2667 Collateral=8500 Debt=3000 | trend=+0.0667/read (+2.94%) declines=0 -> SAFE
+
+============================================================
+  Session Summary
+============================================================
+  Duration: 18 monitoring cycles (~36 min simulated)
+  Total readings: 20
+  Rebalance triggers: 3 (1 warning repay + 1 danger repay)
+  Initial HF: 2.5600
+  Lowest HF:  1.4500
+  Final HF:   2.2667
+  Debt repaid: 2000 base units ($20.00 USDC)
+  All transactions: SUCCESS
+  Audit log: logs/audit.jsonl (24 entries)
+============================================================

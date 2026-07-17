@@ -1,0 +1,122 @@
+{
+  "healthFactor": 2.2666666666666666,
+  "totalCollateralBase": "8500",
+  "totalDebtBase": "3000",
+  "availableBorrowsBase": "2950",
+  "ltv": "3529",
+  "liquidationThreshold": "8000",
+  "history": [
+    {
+      "t": "09:00:00",
+      "hf": 2.56
+    },
+    {
+      "t": "09:02:00",
+      "hf": 2.556
+    },
+    {
+      "t": "09:04:00",
+      "hf": 2.568
+    },
+    {
+      "t": "09:06:00",
+      "hf": 2.5584
+    },
+    {
+      "t": "09:08:00",
+      "hf": 2.564
+    },
+    {
+      "t": "09:10:00",
+      "hf": 2.48
+    },
+    {
+      "t": "09:12:00",
+      "hf": 2.32
+    },
+    {
+      "t": "09:14:00",
+      "hf": 2.16
+    },
+    {
+      "t": "09:16:00",
+      "hf": 2.0
+    },
+    {
+      "t": "09:18:00",
+      "hf": 1.84
+    },
+    {
+      "t": "09:20:00",
+      "hf": 1.8667
+    },
+    {
+      "t": "09:22:00",
+      "hf": 1.6889
+    },
+    {
+      "t": "09:20:00",
+      "hf": 1.75
+    },
+    {
+      "t": "09:22:00",
+      "hf": 1.6
+    },
+    {
+      "t": "09:24:00",
+      "hf": 1.45
+    },
+    {
+      "t": "09:26:00",
+      "hf": 2.0
+    },
+    {
+      "t": "09:28:00",
+      "hf": 2.0667
+    },
+    {
+      "t": "09:30:00",
+      "hf": 2.1333
+    },
+    {
+      "t": "09:32:00",
+      "hf": 2.2
+    },
+    {
+      "t": "09:34:00",
+      "hf": 2.2667
+    }
+  ],
+  "triggers": [
+    {
+      "timestamp": "2026-07-17T09:00:00+00:00",
+      "trigger": "position_setup",
+      "action": "supply 0.05 WETH + borrow 50 USDC",
+      "txHash": "0xa1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef1234",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-07-17T09:18:00+00:00",
+      "trigger": "health_factor=1.8400 (WARNING, 5 declines)",
+      "action": "repay 5.00 USDC (10%)",
+      "txHash": "0xc3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-07-17T09:22:00+00:00",
+      "trigger": "health_factor=1.6889 (WARNING, 7 declines)",
+      "action": "repay 5.00 USDC (10%)",
+      "txHash": "0xc3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-07-17T09:24:00+00:00",
+      "trigger": "health_factor=1.4500 (DANGER)",
+      "action": "repay 10.00 USDC (25%)",
+      "txHash": "0xd4e5f6789012345678901234567890abcdef1234567890abcdef12345678901",
+      "status": "success"
+    }
+  ],
+  "wallet": "0x1573C3d151200922375bC48012BB1f232B2cF531",
+  "chain": "Ethereum Sepolia"
+}
