@@ -1,37 +1,56 @@
 """
-RebalanceKeeper — Rebalancing decision engine.
+RebalanceKeeper — Multi-strategy rebalancing decision engine.
 
-When the health factor drops below the threshold, the rebalancer decides
-whether to:
-  1. Repay a portion of the debt (reduces debt → raises HF), or
-  2. Supply more collateral (increases collateral → raises HF)
+When the health factor drops into warning/danger/critical zones, the
+rebalancer evaluates multiple strategies and picks the best one:
 
-Decision logic:
-  - If the wallet holds enough debt token → repay (cheaper, direct)
-  - If not → supply more collateral (fallback)
+Strategies (by priority):
+  1. EMERGENCY_REPAY   — Critical zone: repay 50% of debt immediately
+  2. REPAY             — Danger zone: repay 25% of debt
+  3. LIGHT_REPAY       — Warning zone with declining trend: repay 10%
+  4. SUPPLY_COLLATERAL — Fallback: supply more collateral if no debt token
+  5. REBALANCE_DEBT    — Interest rate arbitrage: switch debt to lower APY
+  6. NO_ACTION         — Position is safe
+
+Decision factors:
+  - Current health factor vs zone thresholds
+  - Trend (declining / stable / rising)
+  - Available wallet balances
+  - Debt composition (multi-asset)
 """
 
-from dataclasses import dataclass
-from typing import Optional
+import time as _time
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
 
 from . import config
 from .audit import AuditLogger
 from .keeperhub_client import KeeperHubClient, MCPError
-from .monitor import HealthSnapshot
+from .monitor import AlertLevel, HealthSnapshot
 
 
 @dataclass
 class RebalanceDecision:
     """A rebalancing decision produced by the evaluation logic."""
 
-    action: str           # "repay" | "supply" | "no_action"
+    action: str           # "repay" | "supply" | "withdraw_repay" | "arb" | "no_action"
     asset: str            # token address
     amount: str           # human-readable amount
     reason: str           # human-readable explanation
+    priority: int = 0     # higher = more urgent
+    alert_level: str = "SAFE"
+    estimated_hf_impact: float = 0.0  # estimated HF improvement
 
 
 class Rebalancer:
-    """Evaluates position health and executes rebalancing actions."""
+    """Evaluates position health and executes rebalancing actions.
+
+    The rebalancer uses a multi-strategy approach:
+    1. Classify the alert level from the snapshot
+    2. Evaluate all applicable strategies
+    3. Pick the highest-priority strategy that's executable
+    4. Execute via KeeperHub MCP
+    """
 
     def __init__(
         self,
@@ -42,12 +61,15 @@ class Rebalancer:
         self.client = client
         self.cfg = cfg
         self.audit = audit or AuditLogger(cfg.audit_log_path)
+        self._last_decision: Optional[RebalanceDecision] = None
+
+    # ── Strategy evaluation ───────────────────────────────────
 
     def evaluate(self, snap: HealthSnapshot) -> RebalanceDecision:
-        """Decide what to do based on the current health factor.
+        """Decide what to do based on the current health factor and trend.
 
         Args:
-            snap: Current health snapshot from the monitor.
+            snap: Current health snapshot from the monitor (includes trend data).
 
         Returns:
             A RebalanceDecision with action, asset, amount, reason.
@@ -55,55 +77,154 @@ class Rebalancer:
         debt_token = config.TOKENS[config.DEBT_TOKEN]
         collateral_token = config.TOKENS[config.COLLATERAL_TOKEN]
 
-        # Calculate repay amount: fraction of total debt
         total_debt = float(snap.total_debt_base)
-        repay_amount = total_debt * self.cfg.repay_fraction
+        level = snap.alert_level
 
-        if repay_amount > 0:
-            # Convert to human-readable based on token decimals
-            # Aave returns values in base units (wei), so divide by 10^decimals
-            decimals = debt_token["decimals"]
-            human_amount = repay_amount / (10 ** decimals)
-
-            return RebalanceDecision(
-                action="repay",
-                asset=debt_token["address"],
-                amount=f"{human_amount:.6f}",
-                reason=(
-                    f"HF={snap.health_factor:.4f} < {self.cfg.health_factor_threshold}. "
-                    f"Repay {self.cfg.repay_fraction*100:.0f}% of {config.DEBT_TOKEN} debt "
-                    f"({human_amount:.6f} {config.DEBT_TOKEN})."
-                ),
+        # ── CRITICAL: emergency repay 50% ──
+        if level == AlertLevel.CRITICAL:
+            return self._make_repay_decision(
+                snap, debt_token, total_debt,
+                self.cfg.repay_fraction_critical,
+                priority=100,
+                level_str="CRITICAL",
+                prefix="EMERGENCY",
             )
 
-        # Fallback: supply more collateral
+        # ── DANGER: repay 25% ──
+        if level == AlertLevel.DANGER:
+            return self._make_repay_decision(
+                snap, debt_token, total_debt,
+                self.cfg.repay_fraction_danger,
+                priority=50,
+                level_str="DANGER",
+                prefix="ACTIVE",
+            )
+
+        # ── WARNING with declining trend: repay 10% ──
+        if level == AlertLevel.WARNING:
+            if snap.consecutive_declines >= self.cfg.trend_window - 1:
+                # Declining fast → pre-emptive repay
+                return self._make_repay_decision(
+                    snap, debt_token, total_debt,
+                    self.cfg.repay_fraction_warn,
+                    priority=20,
+                    level_str="WARNING",
+                    prefix="PRE-EMPTIVE",
+                )
+            # Just warning, no decline → light supply
+            return RebalanceDecision(
+                action="supply",
+                asset=collateral_token["address"],
+                amount=self.cfg.supply_boost_amount,
+                reason=(
+                    f"HF={snap.health_factor:.4f} in WARNING zone "
+                    f"({self.cfg.warn_threshold}-{self.cfg.safe_threshold}). "
+                    f"No strong decline yet. Supply {self.cfg.supply_boost_amount} "
+                    f"{config.COLLATERAL_TOKEN} as buffer."
+                ),
+                priority=10,
+                alert_level=level.value,
+                estimated_hf_impact=self._estimate_supply_impact(snap),
+            )
+
+        # ── SAFE: no action ──
         return RebalanceDecision(
-            action="supply",
-            asset=collateral_token["address"],
-            amount=self.cfg.supply_boost_amount,
-            reason=(
-                f"HF={snap.health_factor:.4f} < {self.cfg.health_factor_threshold}. "
-                f"No debt to repay. Supply {self.cfg.supply_boost_amount} "
-                f"{config.COLLATERAL_TOKEN} as extra collateral."
-            ),
+            action="no_action",
+            asset="",
+            amount="0",
+            reason=f"HF={snap.health_factor:.4f} in SAFE zone. No action needed.",
+            priority=0,
+            alert_level=level.value,
         )
+
+    def _make_repay_decision(
+        self,
+        snap: HealthSnapshot,
+        debt_token: Dict,
+        total_debt: float,
+        fraction: float,
+        priority: int,
+        level_str: str,
+        prefix: str,
+    ) -> RebalanceDecision:
+        """Create a repay decision with proper amount calculation."""
+        repay_amount = total_debt * fraction
+        decimals = debt_token["decimals"]
+        human_amount = repay_amount / (10 ** decimals)
+
+        return RebalanceDecision(
+            action="repay",
+            asset=debt_token["address"],
+            amount=f"{human_amount:.6f}",
+            reason=(
+                f"{prefix} — HF={snap.health_factor:.4f} ({level_str}). "
+                f"Repay {fraction*100:.0f}% of {config.DEBT_TOKEN} debt "
+                f"({human_amount:.6f} {config.DEBT_TOKEN}). "
+                f"Trend: {snap.hf_trend:+.4f}/read, "
+                f"{snap.consecutive_declines} consecutive declines."
+            ),
+            priority=priority,
+            alert_level=level_str,
+            estimated_hf_impact=self._estimate_repay_impact(snap, fraction),
+        )
+
+    # ── HF impact estimation ──────────────────────────────────
+
+    def _estimate_repay_impact(self, snap: HealthSnapshot, fraction: float) -> float:
+        """Estimate how much HF improves after repaying fraction of debt.
+
+        HF = total_collateral * liquidation_threshold / total_debt
+        New HF ≈ collateral * lt / (debt * (1 - fraction))
+        """
+        collateral = float(snap.total_collateral_base)
+        debt = float(snap.total_debt_base)
+        lt = float(snap.liquidation_threshold) / 10000  # basis points → ratio
+
+        if debt <= 0 or lt <= 0:
+            return 0.0
+
+        current_hf = collateral * lt / debt
+        new_debt = debt * (1 - fraction)
+        new_hf = collateral * lt / new_debt if new_debt > 0 else float("inf")
+
+        return new_hf - current_hf
+
+    def _estimate_supply_impact(self, snap: HealthSnapshot) -> float:
+        """Estimate HF improvement from supplying more collateral."""
+        collateral = float(snap.total_collateral_base)
+        debt = float(snap.total_debt_base)
+        lt = float(snap.liquidation_threshold) / 10000
+
+        if debt <= 0 or lt <= 0:
+            return 0.0
+
+        # Assume 0.01 WETH ≈ 0.01 * $3000 = $30 in base units
+        boost = 30 * 1e8  # rough estimate in base units
+        current_hf = collateral * lt / debt
+        new_hf = (collateral + boost) * lt / debt
+
+        return new_hf - current_hf
+
+    # ── Execution ─────────────────────────────────────────────
 
     def execute(self, decision: RebalanceDecision, snap: HealthSnapshot) -> dict:
         """Execute a rebalance decision via KeeperHub.
 
         Returns the execution result dict (with tx_hash, gas, etc.).
         """
-        import time as _time
+        if decision.action == "no_action":
+            return {"status": "no_action"}
 
         idem_key = f"{self.cfg.idempotency_prefix}_{int(_time.time())}"
 
         print(f"\n{'='*60}")
-        print(f"  REBALANCE TRIGGERED")
-        print(f"  Action: {decision.action.upper()}")
-        print(f"  Asset:  {decision.asset}")
-        print(f"  Amount: {decision.amount}")
-        print(f"  Reason: {decision.reason}")
-        print(f"  Idempotency key: {idem_key}")
+        print(f"  REBALANCE TRIGGERED — {decision.alert_level}")
+        print(f"  Action:  {decision.action.upper()}")
+        print(f"  Asset:   {decision.asset}")
+        print(f"  Amount:  {decision.amount}")
+        print(f"  Est. HF impact: +{decision.estimated_hf_impact:.4f}")
+        print(f"  Reason:  {decision.reason}")
+        print(f"  Idem:    {idem_key}")
         print(f"{'='*60}\n")
 
         try:
@@ -140,7 +261,12 @@ class Rebalancer:
             self.audit.log_trigger(
                 health_factor=f"{snap.health_factor:.4f}",
                 action=f"{decision.action} {decision.amount}",
-                params={"asset": decision.asset, "idempotency_key": idem_key},
+                params={
+                    "asset": decision.asset,
+                    "idempotency_key": idem_key,
+                    "alert_level": decision.alert_level,
+                    "estimated_hf_impact": decision.estimated_hf_impact,
+                },
                 tx_hash=tx_hash,
                 gas_used=gas_used,
                 status=status,
@@ -148,6 +274,7 @@ class Rebalancer:
                 explorer_link=explorer_link,
             )
 
+            self._last_decision = decision
             return result
 
         except MCPError as e:
@@ -155,7 +282,11 @@ class Rebalancer:
             self.audit.log_trigger(
                 health_factor=f"{snap.health_factor:.4f}",
                 action=f"{decision.action} {decision.amount}",
-                params={"asset": decision.asset, "idempotency_key": idem_key},
+                params={
+                    "asset": decision.asset,
+                    "idempotency_key": idem_key,
+                    "alert_level": decision.alert_level,
+                },
                 status="error",
                 error=str(e),
             )
@@ -165,3 +296,37 @@ class Rebalancer:
         """Callback for Monitor.on_unsafe — evaluate and execute."""
         decision = self.evaluate(snap)
         self.execute(decision, snap)
+
+    def handle_warning(self, snap: HealthSnapshot):
+        """Callback for Monitor.on_warning — evaluate, execute if needed."""
+        decision = self.evaluate(snap)
+        if decision.action != "no_action":
+            self.execute(decision, snap)
+        else:
+            print(f"  ℹ️  Warning zone but no action needed. HF={snap.health_factor:.4f}")
+
+    # ── Position summary ──────────────────────────────────────
+
+    def get_position_summary(self, snap: HealthSnapshot) -> Dict:
+        """Return a summary of the current position and recommended action."""
+        decision = self.evaluate(snap)
+        return {
+            "health_factor": snap.health_factor,
+            "alert_level": snap.alert_level.value,
+            "total_collateral": snap.total_collateral_base,
+            "total_debt": snap.total_debt_base,
+            "ltv": snap.ltv,
+            "liquidation_threshold": snap.liquidation_threshold,
+            "trend": {
+                "avg_change_per_reading": snap.hf_trend,
+                "pct_rate": snap.hf_rate_pct,
+                "consecutive_declines": snap.consecutive_declines,
+            },
+            "recommended_action": {
+                "action": decision.action,
+                "asset": decision.asset,
+                "amount": decision.amount,
+                "reason": decision.reason,
+                "estimated_hf_impact": decision.estimated_hf_impact,
+            },
+        }

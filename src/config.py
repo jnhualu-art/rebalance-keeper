@@ -98,17 +98,36 @@ def token_decimals(symbol: str) -> int:
 # ── Rebalancer Parameters ─────────────────────────────────────
 @dataclass
 class RebalanceConfig:
-    """Thresholds and behaviour for the rebalance loop."""
+    """Thresholds and behaviour for the rebalance loop.
 
-    # Health factor below this → trigger rebalance (Aave liquidates at <1.0)
-    health_factor_threshold: float = 1.5
+    Health-factor zones:
+      SAFE     HF >= safe_threshold        → no action, just log
+      WARNING  warn_threshold <= HF < safe → start watching, log trend
+      DANGER   danger_threshold <= HF < warn → active rebalance (repay/supply)
+      CRITICAL HF < danger_threshold        → emergency repay max
+    """
 
-    # How much of the debt to repay per trigger (fraction of total debt, 0–1)
-    repay_fraction: float = 0.15
+    # ── Health factor zones ──
+    safe_threshold: float = 2.0       # above this = healthy
+    warn_threshold: float = 1.5       # start watching / light rebalance
+    danger_threshold: float = 1.2     # active rebalance, larger amounts
+    # below danger_threshold = critical → emergency mode
 
-    # If repay is not possible (no debt token balance), supply extra collateral
-    # instead.  Amount in base units of the collateral token.
+    # ── Trend analysis ──
+    trend_window: int = 5             # number of readings for trend
+    trend_decline_rate: float = 0.02  # HF drop per reading → pre-emptive trigger
+
+    # ── Strategy parameters ──
+    # Repay: fraction of total debt to repay per trigger
+    repay_fraction_warn: float = 0.10   # 10% at warning level
+    repay_fraction_danger: float = 0.25  # 25% at danger level
+    repay_fraction_critical: float = 0.50  # 50% at critical level
+
+    # Supply: extra collateral to add
     supply_boost_amount: str = "0.01"   # 0.01 WETH
+
+    # Interest rate arbitrage: switch debt if APY diff > threshold
+    arb_apy_threshold: float = 3.0     # percentage points
 
     # Polling interval in seconds
     monitor_interval: int = 30
@@ -127,6 +146,9 @@ class RebalanceConfig:
 
     # Interest rate mode for borrow/repay (2 = variable, 1 = stable)
     interest_rate_mode: str = "2"
+
+    # Cooldown: minimum seconds between rebalance actions
+    cooldown_seconds: int = 120
 
 
 # Default config instance

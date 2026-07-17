@@ -54,6 +54,7 @@ def cmd_once(args):
     rebalancer = Rebalancer(client, audit=audit)
     monitor = Monitor(client, audit=audit)
     monitor.on_unsafe(rebalancer.handle_unsafe)
+    monitor.on_warning(rebalancer.handle_warning)
     monitor.check_once()
 
 
@@ -64,16 +65,18 @@ def cmd_monitor(args):
     rebalancer = Rebalancer(client, audit=audit)
     monitor = Monitor(client, audit=audit)
     monitor.on_unsafe(rebalancer.handle_unsafe)
+    monitor.on_warning(rebalancer.handle_warning)
     monitor.run()
 
 
 def cmd_status(args):
     """Show current Aave V3 position status."""
     client = get_client()
+    cfg = config.REBALANCE_CONFIG
     data = client.get_user_account_data(config.WALLET_ADDRESS)
 
     hf_raw = float(data.get("healthFactor", "0"))
-    hf = hf_raw if hf_raw < 1e30 else float("inf")
+    hf = hf_raw / 1e18 if hf_raw < 1e30 else float("inf")
 
     print(f"\n{'='*60}")
     print(f"  RebalanceKeeper — Position Status")
@@ -91,11 +94,42 @@ def cmd_status(args):
     print(f"{'─'*60}")
 
     if hf != float("inf"):
-        threshold = config.REBALANCE_CONFIG.health_factor_threshold
-        status = "✓ SAFE" if hf >= threshold else "⚠ UNSAFE — rebalance needed!"
-        print(f"  Status: {status} (threshold: {threshold})")
+        # Multi-level zone display
+        if hf >= cfg.safe_threshold:
+            zone = "SAFE"
+            icon = "✓"
+        elif hf >= cfg.warn_threshold:
+            zone = "WARNING"
+            icon = "⚠"
+        elif hf >= cfg.danger_threshold:
+            zone = "DANGER"
+            icon = "⚡"
+        else:
+            zone = "CRITICAL"
+            icon = "🚨"
+        print(f"  Status: {icon} {zone}")
+        print(f"  Zones:  SAFE≥{cfg.safe_threshold} | "
+              f"WARN≥{cfg.warn_threshold} | "
+              f"DANGER≥{cfg.danger_threshold} | "
+              f"CRITICAL<{cfg.danger_threshold}")
     else:
         print(f"  Status: ✓ No debt position")
+    print()
+
+
+def cmd_summary(args):
+    """Show full position summary with rebalancer recommendation."""
+    client = get_client()
+    audit = AuditLogger(config.REBALANCE_CONFIG.audit_log_path)
+    rebalancer = Rebalancer(client, audit=audit)
+    monitor = Monitor(client, audit=audit)
+    snap = monitor.read()
+
+    summary = rebalancer.get_position_summary(snap)
+    print(f"\n{'='*60}")
+    print(f"  Position Summary & Recommendation")
+    print(f"{'='*60}")
+    print(json.dumps(summary, indent=2, default=str))
     print()
 
 
@@ -194,6 +228,7 @@ def main():
     sub.add_parser("once", help="Run a single health check")
     sub.add_parser("monitor", help="Run continuous monitoring (default)")
     sub.add_parser("status", help="Show current Aave V3 position")
+    sub.add_parser("summary", help="Show position summary with rebalancer recommendation")
     sub.add_parser("audit", help="Show audit log summary")
 
     setup_p = sub.add_parser("setup", help="Set up a test position")
@@ -219,6 +254,7 @@ def main():
         "once": cmd_once,
         "monitor": cmd_monitor,
         "status": cmd_status,
+        "summary": cmd_summary,
         "setup": cmd_setup,
         "audit": cmd_audit,
         "supply": cmd_supply,
