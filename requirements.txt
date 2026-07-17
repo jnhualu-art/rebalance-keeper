@@ -1,0 +1,13 @@
+# RebalanceKeeper dependencies
+# Python 3.11+
+
+# Core — no external deps required!
+# The agent uses only stdlib (urllib, json, argparse) for zero-dependency portability.
+# Optional: python-dotenv for .env file loading
+python-dotenv>=1.0.0
+
+# Optional: for the dashboard server
+# flask>=3.0.0
+
+# Optional: for advanced monitoring / alerts
+# requests>=2.31.0
