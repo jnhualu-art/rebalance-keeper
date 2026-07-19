@@ -112,10 +112,11 @@ class Rebalancer:
                     prefix="PRE-EMPTIVE",
                 )
             # Just warning, no decline → light supply
+            boost_wei = str(int(float(self.cfg.supply_boost_amount) * 1e18))
             return RebalanceDecision(
                 action="supply",
                 asset=collateral_token["address"],
-                amount=self.cfg.supply_boost_amount,
+                amount=boost_wei,
                 reason=(
                     f"HF={snap.health_factor:.4f} in WARNING zone "
                     f"({self.cfg.warn_threshold}-{self.cfg.safe_threshold}). "
@@ -147,19 +148,30 @@ class Rebalancer:
         level_str: str,
         prefix: str,
     ) -> RebalanceDecision:
-        """Create a repay decision with proper amount calculation."""
-        repay_amount = total_debt * fraction
+        """Create a repay decision with proper amount calculation.
+
+        Note on units:
+          - ``total_debt`` comes from Aave's ``totalDebtBase`` which is in
+            1e8 "base units" where 1e8 == $1.
+          - Aave V3 repay/borrow actions expect the amount in the token's
+            own base units (e.g. 1e6 for USDC, 1e18 for WETH).
+          So:  debt_usd = total_debt / 1e8
+               repay_usd = debt_usd * fraction
+               repay_token_units = int(repay_usd * 10**decimals)
+        """
         decimals = debt_token["decimals"]
-        human_amount = repay_amount / (10 ** decimals)
+        debt_usd = total_debt / 1e8
+        repay_usd = debt_usd * fraction
+        repay_token_units = int(repay_usd * (10 ** decimals))
 
         return RebalanceDecision(
             action="repay",
             asset=debt_token["address"],
-            amount=f"{human_amount:.6f}",
+            amount=f"{repay_token_units}",
             reason=(
                 f"{prefix} — HF={snap.health_factor:.4f} ({level_str}). "
                 f"Repay {fraction*100:.0f}% of {config.DEBT_TOKEN} debt "
-                f"({human_amount:.6f} {config.DEBT_TOKEN}). "
+                f"({repay_usd:.6f} {config.DEBT_TOKEN}). "
                 f"Trend: {snap.hf_trend:+.4f}/read, "
                 f"{snap.consecutive_declines} consecutive declines."
             ),
@@ -229,6 +241,15 @@ class Rebalancer:
 
         try:
             if decision.action == "repay":
+                # Approve the debt token for the Aave Pool so repay() can pull funds.
+                # (idempotent — safe to call every time)
+                try:
+                    self.client.approve(
+                        decision.asset, config.AAVE_POOL,
+                        "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+                    )
+                except MCPError as e:
+                    print(f"  ⚠️  Pre-repay approve skipped: {e}")
                 result = self.client.repay(
                     asset=decision.asset,
                     amount=decision.amount,

@@ -183,6 +183,23 @@ class KeeperHubClient:
 
     # ── Aave V3 write actions (requires wallet) ───────────────
 
+    def _decimals_for(self, asset: str) -> int:
+        """Look up decimals for a token address."""
+        for sym, info in config.TOKENS.items():
+            if info.get("address", "").lower() == asset.lower():
+                return info.get("decimals", 18)
+        return 18
+
+    def _to_base(self, amount: str, decimals: int = 18) -> str:
+        """Convert human-readable amount to token's smallest unit."""
+        try:
+            val = float(amount)
+            if val < 100:
+                return str(int(val * (10 ** decimals)))
+        except ValueError:
+            pass
+        return amount
+
     def supply(
         self,
         asset: str,
@@ -195,8 +212,9 @@ class KeeperHubClient:
         params: Dict[str, Any] = {
             "network": network or config.CHAIN_ID,
             "asset": asset,
-            "amount": amount,
+            "amount": self._to_base(amount, self._decimals_for(asset)),
             "onBehalfOf": on_behalf_of or config.WALLET_ADDRESS,
+            "referralCode": "0",
         }
         return self._execute_with_retry("aave-v3/supply", params, idempotency_key)
 
@@ -213,8 +231,9 @@ class KeeperHubClient:
         params: Dict[str, Any] = {
             "network": network or config.CHAIN_ID,
             "asset": asset,
-            "amount": amount,
+            "amount": self._to_base(amount, self._decimals_for(asset)),
             "onBehalfOf": on_behalf_of or config.WALLET_ADDRESS,
+            "referralCode": "0",
         }
         if interest_rate_mode:
             params["interestRateMode"] = interest_rate_mode
@@ -233,8 +252,9 @@ class KeeperHubClient:
         params: Dict[str, Any] = {
             "network": network or config.CHAIN_ID,
             "asset": asset,
-            "amount": amount,
+            "amount": self._to_base(amount, self._decimals_for(asset)),
             "onBehalfOf": on_behalf_of or config.WALLET_ADDRESS,
+            "referralCode": "0",
         }
         if interest_rate_mode:
             params["interestRateMode"] = interest_rate_mode
@@ -282,6 +302,64 @@ class KeeperHubClient:
                 "address": address,
             },
         })
+
+    def wrap_eth(
+        self,
+        amount_eth: str,
+        network: str = None,
+        idempotency_key: str = None,
+    ) -> Dict:
+        """Wrap native ETH into WETH via WETH.deposit() (payable).
+
+        Aave V3 requires ERC20 collateral; native ETH must be wrapped first.
+        """
+        params: Dict[str, Any] = {
+            "contract_address": config.token_addr("WETH"),
+            "chain_id": network or config.CHAIN_ID,
+            "function_name": "deposit",
+            "function_args": "[]",
+            "value": amount_eth,
+        }
+        if idempotency_key:
+            params["idempotency_key"] = idempotency_key
+        return self._call_tool("execute_contract_call", params)
+
+    def approve(
+        self,
+        token: str,
+        spender: str,
+        amount: str,
+        network: str = None,
+        idempotency_key: str = None,
+    ) -> Dict:
+        """Approve spender to spend ERC20 token (e.g. WETH for Aave Pool)."""
+        params: Dict[str, Any] = {
+            "contract_address": token,
+            "chain_id": network or config.CHAIN_ID,
+            "function_name": "approve",
+            "function_args": json.dumps([spender, amount]),
+        }
+        if idempotency_key:
+            params["idempotency_key"] = idempotency_key
+        return self._call_tool("execute_contract_call", params)
+
+    def get_token_balance(
+        self,
+        token: str,
+        owner: str,
+        network: str = None,
+    ) -> str:
+        """Get ERC20 balance of owner (view call). Returns raw integer string."""
+        params: Dict[str, Any] = {
+            "contract_address": token,
+            "chain_id": network or config.CHAIN_ID,
+            "function_name": "balanceOf",
+            "function_args": json.dumps([owner]),
+        }
+        res = self._call_tool("execute_contract_call", params)
+        if isinstance(res, dict):
+            return str(res.get("result", "0"))
+        return str(res)
 
     # ── Conditional execution (the killer feature) ───────────
 

@@ -25,7 +25,9 @@ Thumbs.db
 
 # Project specific
 *.log
-logs/
+# Keep the logs/ directory itself, but ignore everything inside it by default
+!logs/
+logs/*
 __pycache__/
 *.pyc
 
@@ -34,3 +36,8 @@ __pycache__/
 !logs/demo_session.txt
 !logs/demo_history.json
 !logs/demo_summary.json
+!logs/real_demo_dashboard.json
+!logs/real_demo_history.json
+!logs/real_demo_audit.jsonl
+!logs/real_demo_session.txt
+!logs/real_demo_summary.json

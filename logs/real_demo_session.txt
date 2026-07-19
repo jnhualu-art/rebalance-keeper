@@ -1,0 +1,29 @@
+=== RebalanceKeeper Demo Session (Sepolia) ===
+Wallet: 0x1573C3d151200922375bC48012BB1f232B2cF531
+Aave V3 Pool: 0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951
+
+[06:45:00] SETUP: Wrap 0.05 ETH → WETH, supply as collateral
+  ✓ Supply TX: 0x807937e3b31f1cf05507d9a01a37ccb06d94054588376efefff8a662c0fbb28c
+  ✓ SetCollateral TX: 0xb58a1fa4e2f89e259c139c676383e54beb75f5785a2ec7b4ec7422f40d17c7f0
+[06:45:30] SETUP: Borrow 100 USDC against WETH
+  ✓ Borrow TX: 0x012e58fe1840a92b0d9325d9f78b573f0062960bb1ab50bd9a3ac12075b9860d
+  → HF = 1.6500 (WARNING zone)
+[06:46:10] STRESS: Borrow +30 USDC to simulate price drop
+  ✓ Borrow TX: 0xd9b5b3571a3e92c7f2fe8d2130857ccab2bc59affa7c1c014801e0d70b2416e2
+  → HF = 1.2692 (DANGER zone, below 1.5 threshold)
+
+[06:48:43] MONITOR: Reading position... HF=1.2692 DANGER
+  ⚡ DANGER — HF below 1.5. Rebalancing.
+  REBALANCE TRIGGERED — DANGER
+    Action:  REPAY 32.5 USDC (25% of debt)
+    Est. HF impact: +0.4231
+[06:49:04] EXECUTE: Repay submitted
+  ✓ Repay TX: 0x22aec5f3856dc29579069fcf4b3f7cf89a379d0c9676ee3976f7bfab16c6c857
+  ✓ Gas used: 210224
+  → HF = 1.6923 (recovered to WARNING)
+
+=== Summary ===
+Position created with $200 WETH collateral, borrowed 130 USDC.
+When HF dropped to 1.2692 (DANGER), the keeper auto-triggered
+a 32.5 USDC repay, recovering HF to 1.6923. Full lifecycle
+verified on-chain via Sepolia Etherscan.

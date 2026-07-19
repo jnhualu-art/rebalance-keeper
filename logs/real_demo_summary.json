@@ -1,0 +1,20 @@
+{
+  "wallet": "0x1573C3d151200922375bC48012BB1f232B2cF531",
+  "chain": "Ethereum Sepolia (11155111)",
+  "pool": "0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951",
+  "initial_hf": 2.0,
+  "hf_before_rebalance": 1.2692,
+  "hf_after_rebalance": 1.6923,
+  "collateral_usd": 200,
+  "debt_before_usdc": 130,
+  "debt_after_usdc": 97.5,
+  "repay_usdc": 32.5,
+  "transactions": {
+    "supply": "0x807937e3b31f1cf05507d9a01a37ccb06d94054588376efefff8a662c0fbb28c",
+    "set_collateral": "0xb58a1fa4e2f89e259c139c676383e54beb75f5785a2ec7b4ec7422f40d17c7f0",
+    "borrow_100": "0x012e58fe1840a92b0d9325d9f78b573f0062960bb1ab50bd9a3ac12075b9860d",
+    "borrow_30": "0xd9b5b3571a3e92c7f2fe8d2130857ccab2bc59affa7c1c014801e0d70b2416e2",
+    "repay": "0x22aec5f3856dc29579069fcf4b3f7cf89a379d0c9676ee3976f7bfab16c6c857"
+  },
+  "status": "SUCCESS \u2014 full rebalance lifecycle verified on-chain"
+}
