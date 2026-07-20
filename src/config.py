@@ -198,7 +198,7 @@ class ArcRebalanceConfig:
       CRITICAL health < danger            → emergency max top-up
     """
 
-    floor_usdc: float = 50.0          # minimum operating USDC balance
+    floor_usdc: float = 50.0          # minimum operating USDC balance (operational wallet holds 80 USDC → reads SAFE; reserve holds 40 USDC)
     safe_threshold: float = 2.0
     warn_threshold: float = 1.5
     danger_threshold: float = 1.2

@@ -85,6 +85,35 @@ class ArcExecutor:
             raise ArcExecutorError(str(data["error"]))
         return data.get("result")
 
+    # ── EIP-1559 fee discovery ──────────────────────────────────
+    def _get_fee_params(self) -> tuple:
+        """Return (max_fee_per_gas, max_priority_fee_per_gas) as ints (wei).
+
+        type-2 (EIP-1559) txs must use these instead of the legacy
+        `gasPrice`. Probe the chain for base fee + priority fee, add a
+        buffer, and fall back to sane defaults if the RPC lacks support.
+        """
+        try:
+            priority = int(self._rpc("eth_maxPriorityFeePerGas", []), 16)
+        except Exception:
+            priority = 10 ** 9  # 1 gwei
+        try:
+            block = self._rpc("eth_getBlockByNumber", ["latest", False])
+            base_fee = int(block.get("baseFeePerGas", "0x0"), 16)
+        except Exception:
+            base_fee = 0
+        if base_fee:
+            max_fee = 2 * base_fee + priority
+        else:
+            # No EIP-1559 base fee reported → base it on eth_gasPrice.
+            try:
+                gp = int(self._rpc("eth_gasPrice", []), 16)
+            except Exception:
+                gp = 10 ** 10  # 10 gwei
+            max_fee = 2 * gp + priority
+        max_fee = max(max_fee, priority)  # never submit 0
+        return max_fee, priority
+
     # ── transaction building ────────────────────────────────────
     def build_transfer(self, from_address: str, to_address: str, amount_usdc: float) -> dict:
         """Build (but do not sign) an ERC-20 USDC transfer transaction dict."""
@@ -92,6 +121,7 @@ class ArcExecutor:
         if value <= 0:
             raise ArcExecutorError(f"Amount too small: {amount_usdc} USDC")
         data = TRANSFER_SELECTOR + to_address[2:].lower().rjust(64, "0") + hex(value)[2:].rjust(64, "0")
+        max_fee, priority = self._get_fee_params()
         tx = {
             "from": from_address,
             "to": self.usdc_address,
@@ -100,7 +130,8 @@ class ArcExecutor:
             "chainId": self.chain_id,
             "nonce": int(self._rpc("eth_getTransactionCount", [from_address, "pending"]), 16),
             "gas": "0x" + hex(100_000)[2:],            # 100k gas for ERC-20 transfer
-            "gasPrice": self._rpc("eth_gasPrice", []),
+            "maxFeePerGas": "0x" + hex(max_fee)[2:],
+            "maxPriorityFeePerGas": "0x" + hex(priority)[2:],
             "type": "0x2",                             # EIP-1559 — Arc supports it
         }
         return tx

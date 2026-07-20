@@ -6,6 +6,9 @@
 # Optional: python-dotenv for .env file loading
 python-dotenv>=1.0.0
 
+# Arc (Circle L1) autonomous rebalance — sign EIP-1559 USDC transfers
+eth_account>=0.13.0
+
 # Optional: for the dashboard server
 # flask>=3.0.0
 
