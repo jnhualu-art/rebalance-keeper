@@ -39,6 +39,8 @@ from src.keeperhub_client import KeeperHubClient, MCPError
 from src.monitor import Monitor
 from src.rebalancer import Rebalancer
 from src.arc_client import ArcClient, ArcError
+from src.arc_executor import ArcExecutor, ArcExecutorError
+from src.arc_rebalancer import ArcRebalancer
 from src import arc_position
 
 
@@ -205,6 +207,57 @@ def cmd_arc_status(args):
     arc_position.print_status(pos, decision, C.ARC_REBALANCE_CONFIG)
 
 
+def cmd_arc_rebalance(args):
+    """Autonomous rebalance on Arc Testnet: read → decide → act.
+
+    Modes:
+      arc-rebalance                 # auto: top up if below floor (needs reserve key)
+      arc-rebalance --sweep 5       # demo: push 5 USDC operational → reserve
+      arc-rebalance --topup 5       # demo: pull 5 USDC reserve → operational
+      arc-rebalance --dry-run       # build tx, do not broadcast
+    """
+    from src import config as C
+
+    rebalancer = ArcRebalancer()
+    dry_run = args.dry_run
+
+    try:
+        if args.sweep is not None:
+            print(f"\n⮕ Sweeping {args.sweep} USDC operational → reserve ...")
+            res = rebalancer.sweep(args.sweep, dry_run=dry_run)
+        elif args.topup is not None:
+            print(f"\n⮕ Topping up {args.topup} USDC reserve → operational ...")
+            res = rebalancer.topup(args.topup, dry_run=dry_run)
+        else:
+            print(f"\n⮕ Auto rebalance (read → decide → act) ...")
+            res = rebalancer.run_once(dry_run=dry_run)
+            if res.get("error"):
+                print(f"  ✗ {res['error']}")
+                return
+            decision = res.get("decision")
+            if decision and decision.action == "none":
+                print(f"  ✓ Treasury healthy ({decision.zone}); no action needed.")
+                return
+    except ArcExecutorError as e:
+        print(f"  ✗ Rebalance failed: {e}")
+        return
+
+    _print_rebalance_result(res, dry_run)
+
+
+def _print_rebalance_result(res: dict, dry_run: bool):
+    if dry_run:
+        print(f"  [DRY-RUN] Would broadcast:")
+        print(f"    from:   {res['from']}")
+        print(f"    to:     {res['to']}")
+        print(f"    amount: {res['amount_usdc']} USDC")
+        print(f"    tx:     {json.dumps(res['tx'], indent=2)}")
+        return
+    print(f"  ✓ TX broadcast: {res.get('tx_hash')}")
+    print(f"  ✓ Explorer: {res.get('explorer')}")
+    print(f"    {res['from']} → {res['to']} : {res['amount_usdc']} USDC")
+
+
 def cmd_supply(args):
     """Manual supply."""
     client = get_client()
@@ -259,6 +312,22 @@ def main():
         "--address", default=None, help="Arc wallet address (default: ARC_WALLET_ADDRESS)"
     )
 
+    arc_reb_p = sub.add_parser(
+        "arc-rebalance", help="Autonomous rebalance on Arc (read → decide → act)"
+    )
+    arc_reb_p.add_argument(
+        "--sweep", type=float, default=None,
+        help="Demo: sweep N USDC from operational wallet to reserve wallet",
+    )
+    arc_reb_p.add_argument(
+        "--topup", type=float, default=None,
+        help="Demo: pull N USDC from reserve wallet into operational wallet",
+    )
+    arc_reb_p.add_argument(
+        "--dry-run", action="store_true",
+        help="Build the transaction but do NOT broadcast it",
+    )
+
     setup_p = sub.add_parser("setup", help="Set up a test position")
     setup_p.add_argument("--supply-amount", default="0.01", help="Amount of WETH to supply")
     setup_p.add_argument("--borrow-amount", default="10", help="Amount of USDC to borrow")
@@ -286,6 +355,7 @@ def main():
         "setup": cmd_setup,
         "audit": cmd_audit,
         "arc-status": cmd_arc_status,
+        "arc-rebalance": cmd_arc_rebalance,
         "supply": cmd_supply,
         "borrow": cmd_borrow,
         "repay": cmd_repay,

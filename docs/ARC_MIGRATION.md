@@ -43,29 +43,48 @@ RebalanceKeeper deliberately avoids external dependencies. ArcKeeper reuses that
   via `eth_call` (ERC-20 `balanceOf`) and `eth_getBalance`. Mirrors `keeperhub_client.py`.
 - `src/arc_position.py` — treasury-health model + rebalance decision (SAFE/WARNING/DANGER/CRITICAL).
 - `src/config.py` — `ARC_*` constants + `ArcRebalanceConfig` (floor, thresholds).
-- `src/main.py` — new `arc-status` subcommand.
+- `src/main.py` — new `arc-status` and `arc-rebalance` subcommands.
 - `scripts/arc_status.py` — standalone reader (Checkpoint 2 proof).
+
+### Autonomous execution layer (Checkpoint 3 core, already implemented)
+
+- `src/arc_executor.py` — signs & broadcasts ERC-20 USDC transfers on Arc via `eth_account`
+  (installed in the managed venv). Builds an EIP-1559 `transfer(address,uint256)` tx to
+  `0x3600…0000`, signs locally, broadcasts with `eth_sendRawTransaction`.
+- `src/arc_rebalancer.py` — turns a decision into a real on-chain action:
+  - `topup`:   pull USDC from **reserve → operational** (when below floor)
+  - `sweep`:   push excess USDC from **operational → reserve** (proof of autonomous action)
+  - `run_once`: read → decide → act (fully autonomous loop body)
 
 ## Checkpoint plan
 
 - **Checkpoint 1 (Jul 19)** ✅ Idea submitted: *ArcKeeper — Autonomous USDC Rebalancing Agent*.
 - **Checkpoint 2 (Jul 26)** 🚧 *In progress* — this branch. Read a real Arc treasury position
-  via `python -m src.main arc-status`. Repo link + progress summary.
-- **Checkpoint 3 (Aug 9)** — Functional MVP on Arc: autonomous rebalance execution
-  (signed USDC transfer from reserve → operating wallet), 3-min video, deck.
+  via `python -m src.main arc-status`. Execution layer (`arc_executor.py` + `arc_rebalancer.py`)
+  already implemented and dry-run verified. Repo link + progress summary.
+- **Checkpoint 3 (Aug 9)** — Functional MVP on Arc: live autonomous rebalance (signed USDC
+  transfer), 3-min video, deck.
 - **Demo Day (Aug 20)**.
 
 ## How to run (local)
 
 ```bash
-# 1. Create an Arc wallet + fund with testnet USDC from https://faucet.circle.com
-# 2. Put the address in .env:
-#      ARC_WALLET_ADDRESS=0xYourArcWallet...
+# 1. Create TWO Arc wallets + fund both with testnet USDC from https://faucet.circle.com
+# 2. Put addresses + keys in .env (keys are git-ignored, never committed):
+#      ARC_WALLET_ADDRESS=0xYourOperationalWallet...
+#      ARC_RESERVE_ADDRESS=0xYourReserveWallet...
+#      ARC_PRIVATE_KEY=0xOperationalPrivateKey...
+#      ARC_RESERVE_PRIVATE_KEY=0xReservePrivateKey...
 # 3. Read the treasury:
 python -m src.main arc-status
-# or
-python scripts/arc_status.py 0xYourArcWallet...
+# 4. Dry-run a rebalance (builds tx, does NOT broadcast):
+python -m src.main arc-rebalance --sweep 5 --dry-run
+# 5. Live autonomous rebalance (signs + broadcasts a real USDC transfer):
+python -m src.main arc-rebalance --sweep 5
+#    or pull from reserve:  python -m src.main arc-rebalance --topup 5
+#    or fully auto:         python -m src.main arc-rebalance
 ```
 
 The reader talks to the **public** Arc Testnet RPC, so it works without any API key —
-only a funded wallet is needed to see a non-zero balance.
+only a funded wallet is needed to see a non-zero balance. Execution requires a local
+private key (from `.env`); signing is done locally and the raw tx is broadcast to Arc.

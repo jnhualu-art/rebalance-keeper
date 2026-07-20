@@ -39,6 +39,13 @@ ARC_USDC_DECIMALS = 6
 # Wallet to monitor on Arc. Set ARC_WALLET_ADDRESS in .env after creating one
 # via the Circle Faucet. Falls back to the Sepolia WALLET_ADDRESS for local testing.
 ARC_WALLET_ADDRESS = os.getenv("ARC_WALLET_ADDRESS", WALLET_ADDRESS)
+# Reserve wallet the agent pulls USDC from / sweeps excess to.
+# Set ARC_RESERVE_ADDRESS in .env (a second Arc Testnet address from the faucet).
+ARC_RESERVE_ADDRESS = os.getenv("ARC_RESERVE_ADDRESS", "")
+# Private keys (hex, 0x-prefixed). NEVER commit — .env is git-ignored.
+# Operational wallet key signs sweep/outbound transfers; reserve key signs top-ups.
+ARC_PRIVATE_KEY = os.getenv("ARC_PRIVATE_KEY", "")
+ARC_RESERVE_PRIVATE_KEY = os.getenv("ARC_RESERVE_PRIVATE_KEY", "")
 
 # ── Aave V3 Core Contracts (Sepolia) ──────────────────────────
 AAVE_POOL = "0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951"
