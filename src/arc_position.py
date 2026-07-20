@@ -3,7 +3,8 @@ ArcKeeper — treasury health evaluation & rebalance decision (Arc-native).
 
 On Arc there is no Aave-style lending pool, so ArcKeeper manages a USDC
 *treasury*: it watches its operating USDC balance and, when it dips below a
-floor, rebalances by pulling USDC back from a reserve wallet. This is the
+floor, rebalances by pulling USDC back from a reserve wallet — and when it
+runs above a ceiling, it sweeps the excess back to reserve. This is the
 Agentic Economy pattern — an agent that manages treasury and rebalances
 funds using USDC without a human in the loop.
 """
@@ -16,40 +17,58 @@ from src import config
 
 @dataclass
 class ArcRebalanceDecision:
-    action: str            # "none" | "topup"
-    zone: str              # SAFE | WARNING | DANGER | CRITICAL
-    amount_usdc: float     # how much to pull from reserve (0 if none)
+    action: str            # "none" | "topup" | "sweep"
+    zone: str              # SAFE | WARNING | DANGER | CRITICAL | OVER
+    amount_usdc: float     # how much to move (0 if none)
     reason: str
 
 
 def evaluate(position: Dict, cfg: Optional[config.ArcRebalanceConfig] = None) -> Tuple[str, ArcRebalanceDecision]:
-    """Evaluate a treasury position and decide whether to rebalance."""
+    """Evaluate a treasury position and decide whether/how to rebalance.
+
+    The agent keeps the operating wallet inside the band [floor, ceiling]:
+      - current > ceiling  → sweep the excess to reserve  (action="sweep")
+      - floor <= current   → healthy, no action
+      - current < floor    → pull USDC back from reserve   (action="topup"),
+                             severity (WARNING/DANGER/CRITICAL) by how far below
+    """
     cfg = cfg or config.ARC_REBALANCE_CONFIG
-    health = position["treasury_health"]
     current = position["usdc_balance"]
     floor = position["floor_usdc"]
-    deficit = max(0.0, floor - current)
+    ceiling = cfg.ceiling_usdc
+    health = position["treasury_health"]  # = current / floor
 
-    if health >= cfg.safe_threshold:
-        zone = "SAFE"
+    # 1) Over-funded: keep only `ceiling` in the operating wallet, sweep the rest.
+    if current > ceiling:
+        excess = current - ceiling
+        amount = round(excess * cfg.sweep_fraction, 6)
+        if amount >= 1e-6:
+            return "OVER", ArcRebalanceDecision(
+                "sweep", "OVER", amount,
+                f"Operating {current:.2f} > ceiling {ceiling:.2f}; "
+                f"sweep {amount:.2f} USDC to reserve",
+            )
+
+    # 2) Healthy band [floor, ceiling]: no action, just report.
+    if current >= floor:
+        zone = "SAFE" if health >= cfg.safe_threshold else "WARNING"
         return zone, ArcRebalanceDecision("none", zone, 0.0, "Treasury healthy")
+
+    # 3) Below floor: pull USDC back from reserve (severity by deficit).
+    deficit = floor - current
     if health >= cfg.warn_threshold:
-        zone = "WARNING"
-        # Watch only — no action yet
-        return zone, ArcRebalanceDecision("none", zone, 0.0, "Treasury thinning; monitor")
-    if health >= cfg.danger_threshold:
-        zone = "DANGER"
-        amount = deficit * cfg.topup_fraction_danger
+        zone, amount = "WARNING", deficit * cfg.topup_fraction_warn
+    elif health >= cfg.danger_threshold:
+        zone, amount = "DANGER", deficit * cfg.topup_fraction_danger
+    else:
+        zone, amount = "CRITICAL", deficit * cfg.topup_fraction_critical
+    amount = round(amount, 6)
+    if amount >= 1e-6:
         return zone, ArcRebalanceDecision(
             "topup", zone, amount,
             f"Below floor; pull {amount:.2f} USDC from reserve to restore",
         )
-    zone = "CRITICAL"
-    amount = deficit * cfg.topup_fraction_critical
-    return zone, ArcRebalanceDecision(
-        "topup", zone, amount,
-        f"Critical; emergency pull {amount:.2f} USDC from reserve",
-    )
+    return "CRITICAL", ArcRebalanceDecision("none", "CRITICAL", 0.0, "Deficit negligible")
 
 
 def zone_icon(zone: str) -> str:
@@ -58,6 +77,7 @@ def zone_icon(zone: str) -> str:
         "WARNING": "⚠",
         "DANGER": "⚡",
         "CRITICAL": "🚨",
+        "OVER": "🔼",
     }.get(zone, "?")
 
 
@@ -77,12 +97,12 @@ def print_status(position: Dict, decision: ArcRebalanceDecision, cfg: config.Arc
     print(f"  USDC (ERC-20, 6dp): {position['usdc_balance']:.6f}")
     print(f"  USDC (native gas):   {position['native_usdc_balance']:.6f}")
     print(f"  Floor:               {position['floor_usdc']:.2f} USDC")
+    print(f"  Ceiling:             {cfg.ceiling_usdc:.2f} USDC")
     print(f"  Treasury Health:     {health:.4f}" if health != float('inf') else "  Treasury Health: ∞")
     print(f"{'─'*60}")
     icon = zone_icon(decision.zone)
     print(f"  Status: {icon} {decision.zone}")
-    print(f"  Zones:  SAFE≥{cfg.safe_threshold} | WARN≥{cfg.warn_threshold} | "
-          f"DANGER≥{cfg.danger_threshold} | CRITICAL<{cfg.danger_threshold}")
-    if decision.action == "topup":
+    print(f"  Band:   [floor {cfg.floor_usdc:.0f} .. ceiling {cfg.ceiling_usdc:.0f}] USDC")
+    if decision.action in ("topup", "sweep"):
         print(f"  ➜ Rebalance: {decision.reason}")
     print()

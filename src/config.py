@@ -199,6 +199,8 @@ class ArcRebalanceConfig:
     """
 
     floor_usdc: float = 50.0          # minimum operating USDC balance (operational wallet holds 80 USDC → reads SAFE; reserve holds 40 USDC)
+    ceiling_usdc: float = 75.0        # max operating USDC to keep; excess above this is swept to reserve (agent holds only `ceiling` in ops)
+    sweep_fraction: float = 1.0       # fraction of the excess (current - ceiling) swept per trigger
     safe_threshold: float = 2.0
     warn_threshold: float = 1.5
     danger_threshold: float = 1.2

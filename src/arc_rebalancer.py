@@ -45,6 +45,14 @@ class ArcRebalancer:
                 result["error"] = "ARC_RESERVE_PRIVATE_KEY not set — cannot sign top-up."
                 return result
             result["action"] = self._topup(decision, operational, reserve, dry_run)
+        elif decision.action == "sweep":
+            if not reserve:
+                result["error"] = "ARC_RESERVE_ADDRESS not set — cannot sweep."
+                return result
+            if not config.ARC_PRIVATE_KEY:
+                result["error"] = "ARC_PRIVATE_KEY not set — cannot sign sweep."
+                return result
+            result["action"] = self.sweep(decision.amount_usdc, dry_run=dry_run)
 
         return result
 

@@ -22,6 +22,7 @@ import argparse
 import json
 import sys
 import os
+import time
 
 # Ensure .env is loaded if python-dotenv is available
 try:
@@ -211,10 +212,11 @@ def cmd_arc_rebalance(args):
     """Autonomous rebalance on Arc Testnet: read → decide → act.
 
     Modes:
-      arc-rebalance                 # auto: top up if below floor (needs reserve key)
-      arc-rebalance --sweep 5       # demo: push 5 USDC operational → reserve
-      arc-rebalance --topup 5       # demo: pull 5 USDC reserve → operational
-      arc-rebalance --dry-run       # build tx, do not broadcast
+      arc-rebalance                   # threshold-driven auto: top up if below floor, sweep if above ceiling
+      arc-rebalance --watch           # loop: monitor + autonomously rebalance every --interval seconds
+      arc-rebalance --sweep 5         # demo: push 5 USDC operational → reserve
+      arc-rebalance --topup 5         # demo: pull 5 USDC reserve → operational
+      arc-rebalance --dry-run         # build tx, do not broadcast
     """
     from src import config as C
 
@@ -228,6 +230,9 @@ def cmd_arc_rebalance(args):
         elif args.topup is not None:
             print(f"\n⮕ Topping up {args.topup} USDC reserve → operational ...")
             res = rebalancer.topup(args.topup, dry_run=dry_run)
+        elif args.watch:
+            _run_watch(rebalancer, dry_run, args.interval)
+            return
         else:
             print(f"\n⮕ Auto rebalance (read → decide → act) ...")
             res = rebalancer.run_once(dry_run=dry_run)
@@ -238,11 +243,35 @@ def cmd_arc_rebalance(args):
             if decision and decision.action == "none":
                 print(f"  ✓ Treasury healthy ({decision.zone}); no action needed.")
                 return
+            # run_once wraps the transfer result under "action"
+            res = res.get("action") or {}
     except ArcExecutorError as e:
         print(f"  ✗ Rebalance failed: {e}")
         return
 
     _print_rebalance_result(res, dry_run)
+
+
+def _run_watch(rebalancer, dry_run: bool, interval: int):
+    """Loop: evaluate the treasury and autonomously rebalance every interval."""
+    from src import config as C
+
+    interval = interval or C.ARC_REBALANCE_CONFIG.monitor_interval
+    print(f"\n⮕ Watching treasury every {interval}s (Ctrl-C to stop) ...")
+    try:
+        while True:
+            res = rebalancer.run_once(dry_run=dry_run)
+            if res.get("error"):
+                print(f"  ✗ {res['error']}")
+            else:
+                decision = res.get("decision")
+                if decision and decision.action == "none":
+                    print(f"  ✓ {decision.zone}: {decision.reason}")
+                else:
+                    _print_rebalance_result(res.get("action") or {}, dry_run)
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        print("\n⏹ Stopped watching.")
 
 
 def _print_rebalance_result(res: dict, dry_run: bool):
@@ -326,6 +355,14 @@ def main():
     arc_reb_p.add_argument(
         "--dry-run", action="store_true",
         help="Build the transaction but do NOT broadcast it",
+    )
+    arc_reb_p.add_argument(
+        "--watch", action="store_true",
+        help="Loop: monitor + autonomously rebalance every --interval seconds",
+    )
+    arc_reb_p.add_argument(
+        "--interval", type=int, default=None,
+        help="Watch-loop interval in seconds (default: config.monitor_interval)",
     )
 
     setup_p = sub.add_parser("setup", help="Set up a test position")
