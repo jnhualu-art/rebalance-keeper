@@ -2,18 +2,20 @@
 """
 RebalanceKeeper — DeFi position rebalancing agent.
 
-Monitors an Aave V3 position's health factor and automatically triggers
-repay / supply actions via KeeperHub MCP when it drops below a threshold.
+Monitors a position's health factor (Aave V3 on Sepolia) or treasury balance
+(Arc Testnet) and automatically triggers rebalance actions when it drops
+below a threshold.
 
 Usage:
-  python -m src.main --once         # Single check
-  python -m src.main --monitor      # Continuous monitoring (default)
-  python -m src.main --status       # Show current position status
-  python -m src.main --setup        # Set up a test position (supply + borrow)
+  python -m src.main --once         # Single Aave V3 check
+  python -m src.main --monitor      # Continuous Aave V3 monitoring (default)
+  python -m src.main --status       # Show current Aave V3 position status
+  python -m src.main --setup        # Set up a test Aave V3 position
   python -m src.main --audit        # Show audit log summary
-  python -m src.main --supply 0.01  # Manual supply
-  python -m src.main --borrow 10    # Manual borrow
-  python -m src.main --repay 5      # Manual repay
+  python -m src.main --supply 0.01  # Manual Aave V3 supply
+  python -m src.main --borrow 10    # Manual Aave V3 borrow
+  python -m src.main --repay 5      # Manual Aave V3 repay
+  python -m src.main arc-status     # Show Arc Testnet treasury status (real on-chain)
 """
 
 import argparse
@@ -36,6 +38,8 @@ from src.audit import AuditLogger
 from src.keeperhub_client import KeeperHubClient, MCPError
 from src.monitor import Monitor
 from src.rebalancer import Rebalancer
+from src.arc_client import ArcClient, ArcError
+from src import arc_position
 
 
 def get_client() -> KeeperHubClient:
@@ -184,6 +188,23 @@ def cmd_audit(args):
     print(audit.summary())
 
 
+def cmd_arc_status(args):
+    """Show current Arc Testnet treasury status (real on-chain USDC read)."""
+    from src import config as C
+
+    wallet = args.address or C.ARC_WALLET_ADDRESS
+    try:
+        client = ArcClient()
+        pos = client.get_position(wallet, floor_usdc=C.ARC_REBALANCE_CONFIG.floor_usdc)
+    except ArcError as e:
+        print(f"ERROR: Could not reach Arc Testnet RPC: {e}")
+        print("Check your network / ARC_RPC_URL. The public RPC is "
+              "https://rpc.testnet.arc.network")
+        return
+    _, decision = arc_position.evaluate(pos, C.ARC_REBALANCE_CONFIG)
+    arc_position.print_status(pos, decision, C.ARC_REBALANCE_CONFIG)
+
+
 def cmd_supply(args):
     """Manual supply."""
     client = get_client()
@@ -231,6 +252,13 @@ def main():
     sub.add_parser("summary", help="Show position summary with rebalancer recommendation")
     sub.add_parser("audit", help="Show audit log summary")
 
+    arc_status_p = sub.add_parser(
+        "arc-status", help="Show Arc Testnet treasury status (real on-chain USDC)"
+    )
+    arc_status_p.add_argument(
+        "--address", default=None, help="Arc wallet address (default: ARC_WALLET_ADDRESS)"
+    )
+
     setup_p = sub.add_parser("setup", help="Set up a test position")
     setup_p.add_argument("--supply-amount", default="0.01", help="Amount of WETH to supply")
     setup_p.add_argument("--borrow-amount", default="10", help="Amount of USDC to borrow")
@@ -257,6 +285,7 @@ def main():
         "summary": cmd_summary,
         "setup": cmd_setup,
         "audit": cmd_audit,
+        "arc-status": cmd_arc_status,
         "supply": cmd_supply,
         "borrow": cmd_borrow,
         "repay": cmd_repay,

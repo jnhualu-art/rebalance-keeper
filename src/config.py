@@ -23,6 +23,23 @@ WALLET_INTEGRATION_ID = os.getenv("WALLET_INTEGRATION_ID", "flx4bwzye6tb6re68wos
 CHAIN_ID = os.getenv("CHAIN_ID", "11155111")
 CHAIN_NAME = "Ethereum Sepolia"
 
+# ── Arc Testnet (Circle stablecoin-native L1) ──
+# Arc is an EVM-compatible L1. USDC is its native gas token.
+# Docs: https://docs.arc.io  |  Explorer: https://testnet.arcscan.app
+# NOTE: Sepolia testnet assets CANNOT be bridged to Arc — you must request
+# Arc Testnet USDC from the Circle Faucet (https://faucet.circle.com).
+ARC_RPC_URL = os.getenv("ARC_RPC_URL", "https://rpc.testnet.arc.network")
+ARC_CHAIN_ID = int(os.getenv("ARC_CHAIN_ID", "5042002"))
+ARC_CHAIN_NAME = "Arc Testnet"
+ARC_EXPLORER = "https://testnet.arcscan.app"
+# USDC ERC-20 interface (per Arc docs, read balances via this, 6 decimals).
+# The native gas balance uses 18 decimals; we standardise on the ERC-20 6-decimal view.
+ARC_USDC_ERC20 = "0x3600000000000000000000000000000000000000"
+ARC_USDC_DECIMALS = 6
+# Wallet to monitor on Arc. Set ARC_WALLET_ADDRESS in .env after creating one
+# via the Circle Faucet. Falls back to the Sepolia WALLET_ADDRESS for local testing.
+ARC_WALLET_ADDRESS = os.getenv("ARC_WALLET_ADDRESS", WALLET_ADDRESS)
+
 # ── Aave V3 Core Contracts (Sepolia) ──────────────────────────
 AAVE_POOL = "0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951"
 AAVE_POOL_ADDRESSES_PROVIDER = "0x012bAC54348C0E635dCAc9D5FB99f06F24136C9A"
@@ -153,3 +170,39 @@ class RebalanceConfig:
 
 # Default config instance
 REBALANCE_CONFIG = RebalanceConfig()
+
+
+# ── Arc (Treasury) Rebalance Config ───────────────────────────
+@dataclass
+class ArcRebalanceConfig:
+    """Treasury-health model for ArcKeeper on Arc.
+
+    On Arc there is no Aave-style lending pool (yet), so ArcKeeper manages a
+    USDC *treasury*: it monitors its operating USDC balance and, when it drops
+    below a floor (e.g. after autonomous payments / nanopayments), it
+    rebalances by pulling USDC back from a reserve wallet to restore the floor.
+    This maps directly to the Agentic Economy track:
+      "agents that manage treasury, settle jobs, rebalance funds using USDC".
+
+    Treasury Health = current_usdc / floor_usdc
+      SAFE     health >= safe
+      WARNING  warn <= health < safe      → watch
+      DANGER   danger <= health < warn    → rebalance (top-up)
+      CRITICAL health < danger            → emergency max top-up
+    """
+
+    floor_usdc: float = 50.0          # minimum operating USDC balance
+    safe_threshold: float = 2.0
+    warn_threshold: float = 1.5
+    danger_threshold: float = 1.2
+
+    # Fraction of the deficit (floor - current) to pull back on each trigger
+    topup_fraction_warn: float = 0.50
+    topup_fraction_danger: float = 1.0     # fully restore floor
+    topup_fraction_critical: float = 1.0
+
+    monitor_interval: int = 30
+
+
+# Default Arc config instance
+ARC_REBALANCE_CONFIG = ArcRebalanceConfig()
