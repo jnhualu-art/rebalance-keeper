@@ -252,6 +252,40 @@ def cmd_arc_rebalance(args):
     _print_rebalance_result(res, dry_run)
 
 
+def cmd_flare_rebalance(args):
+    """TEE-secured autonomous rebalance on Flare (Flare Summer Signal Bounty 2).
+
+    Reads the on-chain treasury, computes the rebalance decision INSIDE a
+    Confidential Compute enclave, and returns an attested decision. The
+    on-chain broadcast of that decision is a TODO (wire FLARE_USDC_ERC20 +
+    keys to reuse the EIP-1559 transfer path).
+    """
+    from src.flare_rebalancer import FlareRebalancer
+
+    rebalancer = FlareRebalancer()
+    try:
+        print("\n⮕ FlareKeeper: read treasury → decide (in TEE) → attest ...")
+        res = rebalancer.run_once(dry_run=args.dry_run)
+    except FlareError as e:
+        print(f"ERROR: Could not reach Flare RPC: {e}")
+        print("Check FLARE_RPC_URL / your network. Default Coston2: "
+              "https://coston2-api.flare.network/ext/bc/C/rpc")
+        return
+
+    pos = res["position"]
+    att = res["attested_decision"]
+    print(f"  Wallet      : {pos['address']}")
+    print(f"  USDC        : {pos['usdc_balance']:.6f}")
+    print(f"  Chain       : {pos['chain_id']} (block {pos['block_number']})")
+    print(f"  Decision    : {att.decision['action']} "
+          f"{att.decision.get('amount_usdc', 0):.6f} USDC")
+    print(f"  Reason      : {att.decision['reason']}")
+    print(f"  TEE mode    : {att.enclave_mode} (app {att.app_id})")
+    print(f"  Attestation : {att.attestation}")
+    print(f"  Verified    : {att.verified}")
+    print(f"  Execution   : {res['execution']}")
+
+
 def _run_watch(rebalancer, dry_run: bool, interval: int):
     """Loop: evaluate the treasury and autonomously rebalance every interval."""
     from src import config as C
@@ -365,6 +399,15 @@ def main():
         help="Watch-loop interval in seconds (default: config.monitor_interval)",
     )
 
+    flare_reb_p = sub.add_parser(
+        "flare-rebalance",
+        help="TEE-secured rebalance on Flare (read → decide inside Confidential Compute → attest)",
+    )
+    flare_reb_p.add_argument(
+        "--dry-run", action="store_true",
+        help="Compute + attest the decision but do NOT broadcast on-chain",
+    )
+
     setup_p = sub.add_parser("setup", help="Set up a test position")
     setup_p.add_argument("--supply-amount", default="0.01", help="Amount of WETH to supply")
     setup_p.add_argument("--borrow-amount", default="10", help="Amount of USDC to borrow")
@@ -393,6 +436,7 @@ def main():
         "audit": cmd_audit,
         "arc-status": cmd_arc_status,
         "arc-rebalance": cmd_arc_rebalance,
+        "flare-rebalance": cmd_flare_rebalance,
         "supply": cmd_supply,
         "borrow": cmd_borrow,
         "repay": cmd_repay,

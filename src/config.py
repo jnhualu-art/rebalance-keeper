@@ -215,3 +215,50 @@ class ArcRebalanceConfig:
 
 # Default Arc config instance
 ARC_REBALANCE_CONFIG = ArcRebalanceConfig()
+
+
+# ── Flare (Confidential Compute L1, EVM-compatible) ──
+# Flare Summer Signal hackathon (DoraHacks), Bounty 2 — Confidential Compute Apps.
+# Docs: https://docs.flare.network  |  Explorer (Coston2): https://coston2-explorer.flare.network
+# Default network = Coston2 (Flare testnet) — free, fast, hackathon-friendly.
+FLARE_RPC_URL = os.getenv("FLARE_RPC_URL", "https://coston2-api.flare.network/ext/bc/C/rpc")
+FLARE_CHAIN_ID = int(os.getenv("FLARE_CHAIN_ID", "114"))   # 114 = Coston2, 14 = Flare mainnet
+FLARE_CHAIN_NAME = "Flare Coston2 Testnet"
+FLARE_EXPLORER = "https://coston2-explorer.flare.network"
+# USDC ERC-20 on Flare. VERIFY against the Flare token registry before mainnet.
+# Coston2 testnet: get test-USDC from the Coston2 faucet and set FLARE_USDC_ERC20 in .env.
+FLARE_USDC_ERC20 = os.getenv("FLARE_USDC_ERC20", "")
+FLARE_USDC_DECIMALS = int(os.getenv("FLARE_USDC_DECIMALS", "6"))
+# Wallet to monitor on Flare. Set FLARE_WALLET_ADDRESS in .env (a Coston2 address).
+FLARE_WALLET_ADDRESS = os.getenv("FLARE_WALLET_ADDRESS", "")
+# Reserve wallet the agent pulls USDC from / sweeps excess to (optional for demo).
+FLARE_RESERVE_ADDRESS = os.getenv("FLARE_RESERVE_ADDRESS", "")
+FLARE_PRIVATE_KEY = os.getenv("FLARE_PRIVATE_KEY", "")
+FLARE_RESERVE_PRIVATE_KEY = os.getenv("FLARE_RESERVE_PRIVATE_KEY", "")
+
+
+# ── Flare (Treasury) Rebalance Config ─────────────────────────
+@dataclass
+class FlareRebalanceConfig:
+    """Treasury-health model for FlareKeeper.
+
+    Mirrors ArcRebalanceConfig: the agent keeps its operating USDC inside a
+    [floor, ceiling] band and rebalances to stay there. The *decision* is
+    computed inside a TEE (Confidential Compute) and attested — see
+    src/flare_tee.py and src/flare_rebalancer.py.
+    """
+
+    floor_usdc: float = 20.0          # minimum operating USDC balance
+    ceiling_usdc: float = 50.0        # max operating USDC; excess swept to reserve
+    sweep_fraction: float = 1.0       # fraction of excess swept per trigger
+    safe_threshold: float = 2.0
+    warn_threshold: float = 1.5
+    danger_threshold: float = 1.2
+    topup_fraction_warn: float = 0.50
+    topup_fraction_danger: float = 1.0
+    topup_fraction_critical: float = 1.0
+    monitor_interval: int = 30
+
+
+# Default Flare config instance
+FLARE_REBALANCE_CONFIG = FlareRebalanceConfig()
