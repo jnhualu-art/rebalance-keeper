@@ -256,19 +256,26 @@ def cmd_flare_rebalance(args):
     """TEE-secured autonomous rebalance on Flare (Flare Summer Signal Bounty 2).
 
     Reads the on-chain treasury, computes the rebalance decision INSIDE a
-    Confidential Compute enclave, and returns an attested decision. The
-    on-chain broadcast of that decision is a TODO (wire FLARE_USDC_ERC20 +
-    keys to reuse the EIP-1559 transfer path).
+    Confidential Compute enclave, and returns an attested decision.     The
+    attested decision is then anchored on-chain (calldata) and executed as a
+    real C2FLR / ERC-20 transfer. Broadcasting requires BOTH `--execute` and
+    FLARE_ALLOW_LIVE=1 in .env — either alone is not enough, so a forgotten
+    flag or a flipped .env can never move real funds by accident.
     """
     from src.flare_rebalancer import FlareRebalancer
+    from src.flare_client import FlareError
     from src import config as C
 
     rebalancer = FlareRebalancer()
     try:
         print("\n⮕ FlareKeeper: read treasury → decide (in TEE) → anchor → execute ...")
-        # Broadcast only with explicit --execute or FLARE_ALLOW_LIVE=1.
-        # Default is dry-run so no real funds ever move by accident.
-        dry_run = not (args.execute or C.FLARE_ALLOW_LIVE)
+        # Safety: broadcast ONLY when both --execute flag AND FLARE_ALLOW_LIVE=1
+        # are set. Default (no --execute) is dry-run — no real funds move.
+        broadcast = bool(args.execute) and bool(C.FLARE_ALLOW_LIVE)
+        if args.execute and not C.FLARE_ALLOW_LIVE:
+            print("  NOTE: --execute given but FLARE_ALLOW_LIVE is not 1 in .env. "
+                  "Refusing to broadcast. Set FLARE_ALLOW_LIVE=1 to enable live sends.")
+        dry_run = not broadcast
         res = rebalancer.run_once(dry_run=dry_run, anchor=not args.no_anchor)
     except FlareError as e:
         print(f"ERROR: Could not reach Flare RPC: {e}")

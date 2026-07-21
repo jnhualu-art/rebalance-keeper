@@ -31,6 +31,8 @@ import urllib.request
 import urllib.error
 from typing import Dict, Optional
 
+from eth_utils import to_checksum_address
+
 
 # A valid EVM address: 0x + 40 hex chars.
 _ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
@@ -41,14 +43,16 @@ class FlareError(Exception):
 
 
 def validate_address(address: str) -> str:
-    """Return the lower-cased address if valid, else raise FlareError.
+    """Return the EIP-55 checksum address if valid, else raise FlareError.
 
     Called before any signing so a malformed / truncated address can never
-    end up in a real transaction.
+    end up in a real transaction. A checksum address (mixed-case) is required
+    because eth_account.sign_transaction() validates that `from` matches the
+    key's checksum address — a plain lower-cased `from` would be rejected.
     """
     if not isinstance(address, str) or not _ADDRESS_RE.match(address):
         raise FlareError(f"Invalid Flare address: {address!r}")
-    return address.lower()
+    return to_checksum_address(address)
 
 
 class FlareClient:

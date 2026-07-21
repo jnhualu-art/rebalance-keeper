@@ -17,6 +17,7 @@ from src.flare_tee import ConfidentialCompute, AttestedDecision
 from src.flare_executor import FlareExecutor, FlareExecutorError
 from src.flare_client import FlareClient, FlareError, validate_address
 from src.flare_rebalancer import FlareRebalancer
+from eth_utils import to_checksum_address
 
 
 # ── flare_tee ────────────────────────────────────────────────
@@ -98,7 +99,7 @@ def test_build_anchor_carries_attestation(monkeypatch):
     att = "sim:deadbeef"
     tx = ex.build_anchor(A, "0x" + att.encode().hex())
     assert tx["value"] == "0x0"
-    assert tx["to"] == A.lower()                          # self-transfer by default (lower-cased)
+    assert tx["to"] == to_checksum_address(A)            # self-transfer by default (checksum)
     # calldata decodes back to the attestation string
     assert bytes.fromhex(tx["data"][2:]).decode() == att
 
@@ -209,7 +210,13 @@ def test_build_rejects_unallowed_recipient(monkeypatch):
 
 
 def test_validate_address():
-    assert validate_address(A) == A.lower()
+    checksum = to_checksum_address(A)
+    # Returns a canonical EIP-55 checksum address (mixed case) — eth_account
+    # needs this to match `from` against the signing key.
+    assert validate_address(A) == checksum
+    # Accepts a lower-cased input too and normalises it.
+    assert validate_address(A.lower()) == checksum
+    assert validate_address(A) != A.lower()
     with pytest.raises(FlareError):
         validate_address("0x123")            # too short
     with pytest.raises(FlareError):
