@@ -251,6 +251,20 @@ FLARE_RESERVE_PRIVATE_KEY = os.getenv("FLARE_RESERVE_PRIVATE_KEY", "")
 # calldata) so anyone can verify "this decision came from the attested strategy".
 FLARE_ANCHOR_ADDRESS = os.getenv("FLARE_ANCHOR_ADDRESS", "")
 
+# ── Security guardrails ──────────────────────────────────────
+# Hard ceiling on a SINGLE rebalance transfer, in treasury-asset units.
+# Protects against a buggy strategy draining the whole wallet in one tx.
+# Tune to your treasury size. Override with FLARE_MAX_TRANSFER in .env.
+FLARE_MAX_TRANSFER = float(os.getenv("FLARE_MAX_TRANSFER", "1000.0"))
+# Live broadcast is OFF by default — `flare-rebalance` only broadcasts when the
+# operator passes --execute (or sets FLARE_ALLOW_LIVE=1). Prevents accidental
+# real sends.
+FLARE_ALLOW_LIVE = os.getenv("FLARE_ALLOW_LIVE", "0") == "1"
+# If set, the agent refuses to broadcast to any address outside this set
+# (comma-separated). Defence-in-depth: even a tampered config can't redirect
+# funds to an attacker wallet. Leave empty to only allow operational<->reserve.
+FLARE_TRUSTED_ADDRESSES = os.getenv("FLARE_TRUSTED_ADDRESSES", "")
+
 
 # ── Flare (Treasury) Rebalance Config ─────────────────────────
 @dataclass

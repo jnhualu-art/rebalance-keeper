@@ -25,6 +25,7 @@ from eth_account import Account
 from eth_account.signers.local import LocalAccount
 
 from src import config
+from src.flare_client import validate_address
 
 
 # ERC-20 function selectors
@@ -48,6 +49,10 @@ class FlareExecutor:
         self.chain_id = chain_id or config.FLARE_CHAIN_ID
         self.usdc_address = (usdc_address or config.FLARE_USDC_ERC20 or "").lower()
         self._account_cache = {}
+        # Monotonic nonce counter per address. Seeded from chain on first use,
+        # then incremented locally so back-to-back sends (anchor then transfer)
+        # never collide on the same nonce.
+        self._nonce_counter = {}
 
     # ── account handling ────────────────────────────────────────
     def _load_account(self, private_key: str) -> LocalAccount:
@@ -114,18 +119,64 @@ class FlareExecutor:
     def _nonce(self, address: str) -> int:
         return int(self._rpc("eth_getTransactionCount", [address, "pending"]), 16)
 
+    def _next_nonce(self, address: str) -> int:
+        """Monotonic nonce for `address`.
+
+        Seeds from chain on first use, then increments locally — so anchor +
+        transfer sent back-to-back never reuse a nonce even before the first
+        tx confirms.
+        """
+        address = validate_address(address)
+        if address not in self._nonce_counter:
+            self._nonce_counter[address] = self._nonce(address)
+        n = self._nonce_counter[address]
+        self._nonce_counter[address] += 1
+        return n
+
     # ── transaction building ────────────────────────────────────
-    def build_transfer(self, from_address: str, to_address: str, amount: float) -> dict:
+    def build_transfer(
+        self,
+        from_address: str,
+        to_address: str,
+        amount: float,
+        allowed_recipients: set = None,
+    ) -> dict:
         """Build (unsigned) a treasury transfer tx in the configured asset mode.
 
         native mode : send `amount` C2FLR via the `value` field.
         erc20 mode  : send `amount` tokens via transfer(address,uint256).
+
+        Safety:
+          - from/to addresses are validated (no malformed addresses in txs).
+          - `amount` is capped by config.FLARE_MAX_TRANSFER (anti-drain).
+          - if `allowed_recipients` is given, `to_address` MUST be in it
+            (defence against a tampered config redirecting funds).
         """
+        from_address = validate_address(from_address)
+        to_address = validate_address(to_address)
+
+        # Anti-drain hard cap.
+        cap = config.FLARE_MAX_TRANSFER
+        if amount > cap:
+            raise FlareExecutorError(
+                f"Transfer {amount} exceeds FLARE_MAX_TRANSFER ({cap}). "
+                "Refusing — possible strategy bug or tampering."
+            )
+
+        # Recipient allowlist (defence-in-depth).
+        if allowed_recipients:
+            allowed = {validate_address(a) for a in allowed_recipients}
+            if to_address not in allowed:
+                raise FlareExecutorError(
+                    f"Recipient {to_address} not in allowed set {sorted(allowed)}. "
+                    "Refusing — possible config tampering."
+                )
+
         max_fee, priority = self._get_fee_params()
         base = {
             "from": from_address,
             "chainId": self.chain_id,
-            "nonce": self._nonce(from_address),
+            "nonce": self._next_nonce(from_address),
             "maxFeePerGas": "0x" + hex(max_fee)[2:],
             "maxPriorityFeePerGas": "0x" + hex(priority)[2:],
             "type": "0x2",
@@ -168,7 +219,9 @@ class FlareExecutor:
         Defaults to a self-transfer (from == to) so it's free of side effects
         beyond publishing the attestation in calldata for anyone to verify.
         """
+        from_address = validate_address(from_address)
         to = (to_address or config.FLARE_ANCHOR_ADDRESS or from_address)
+        to = validate_address(to)
         if not memo_hex.startswith("0x"):
             memo_hex = "0x" + memo_hex
         max_fee, priority = self._get_fee_params()
@@ -180,15 +233,42 @@ class FlareExecutor:
             "value": "0x0",
             "data": memo_hex,
             "chainId": self.chain_id,
-            "nonce": self._nonce(from_address),
+            "nonce": self._next_nonce(from_address),
             "gas": "0x" + hex(gas)[2:],
             "maxFeePerGas": "0x" + hex(max_fee)[2:],
             "maxPriorityFeePerGas": "0x" + hex(priority)[2:],
             "type": "0x2",
         }
 
+    # ── pre-broadcast simulation (fail-safe before spending gas) ──
+    def _simulate_tx(self, tx: dict) -> None:
+        """Run the tx via eth_call first; raise if it would revert.
+
+        Catches insufficient balance, bad contract, wrong calldata, etc.
+        BEFORE any gas is spent or a real signature broadcast.
+        """
+        call_obj = {
+            "from": tx.get("from"),
+            "to": tx.get("to"),
+            "value": tx.get("value", "0x0"),
+            "data": tx.get("data", "0x"),
+            "gas": tx.get("gas", "0x" + hex(100_000)[2:]),
+        }
+        try:
+            res = self._rpc("eth_call", [call_obj, "latest"])
+        except FlareExecutorError as e:
+            # eth_call returned a JSON-RPC error → the tx would revert.
+            raise FlareExecutorError(f"Pre-broadcast simulation rejected tx: {e}")
+        if isinstance(res, str) and res.startswith("0x08c379a0"):
+            # revert(string) — decoded by tools; refuse to broadcast.
+            raise FlareExecutorError(
+                f"Pre-broadcast simulation: tx would revert ({res})."
+            )
+
     # ── signing / broadcast ─────────────────────────────────────
     def sign_and_send(self, tx: dict, private_key: str) -> str:
+        # Fail-safe: simulate before signing/broadcasting.
+        self._simulate_tx(tx)
         acct = self._load_account(private_key)
         signed = acct.sign_transaction(tx)
         raw = signed.raw_transaction.hex()
@@ -204,9 +284,13 @@ class FlareExecutor:
         amount: float,
         private_key: str,
         dry_run: bool = False,
+        allowed_recipients: set = None,
     ) -> dict:
         """Move `amount` of the treasury asset from → to."""
-        tx = self.build_transfer(from_address, to_address, amount)
+        tx = self.build_transfer(
+            from_address, to_address, amount,
+            allowed_recipients=allowed_recipients,
+        )
         if dry_run:
             return {"dry_run": True, "from": from_address, "to": to_address,
                     "amount": amount, "asset": config.flare_treasury_symbol(), "tx": tx}

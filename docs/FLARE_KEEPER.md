@@ -72,15 +72,50 @@ FLARE_RESERVE_PRIVATE_KEY=0x...       # reserve key (signs topup)
 ## Run
 
 ```bash
-# dry-run: build + attest + plan, broadcast nothing (no keys/gas needed)
-python -m src.main flare-rebalance --dry-run
-
-# live: read → TEE decide → anchor attestation → execute on Coston2
+# DEFAULT is dry-run: build + attest + plan, broadcast NOTHING (no keys/gas
+# needed). Safe to run anywhere.
 python -m src.main flare-rebalance
 
-# execute the rebalance but skip on-chain anchoring
-python -m src.main flare-rebalance --no-anchor
+# explicitly show it's a dry run
+python -m src.main flare-rebalance --dry-run
+
+# LIVE: actually broadcast the anchor + transfer on Coston2. Requires the
+# operator to opt in. Alternatively set FLARE_ALLOW_LIVE=1 in .env.
+python -m src.main flare-rebalance --execute
+
+# live, but skip on-chain attestation anchoring
+python -m src.main flare-rebalance --execute --no-anchor
 ```
+
+## Security guardrails
+
+FlareKeeper is built so a bug or a tampered config can **never** move more
+than intended, nor send funds to an unexpected address:
+
+- **No custom contract.** The agent only calls native transfers / ERC-20
+  `transfer`, so there is no Solidity surface to audit.
+- **Private keys never leave the machine.** Loaded from `.env` (gitignored),
+  held only in memory, used by `eth_account` for local signing.
+- **Anti-drain cap.** A single transfer is refused if it exceeds
+  `FLARE_MAX_TRANSFER` (default 1000 treasury units).
+- **Recipient allowlist.** Funds may only ever move between the operational and
+  reserve wallets; any other recipient is rejected before signing.
+- **Chain pinning.** The RPC must report `FLARE_CHAIN_ID` (114 = Coston2);
+  a swapped / MITM node that lied about the chain is refused (stops fake
+  balances tricking the agent into rebalancing).
+- **Address validation.** Every `from`/`to` is validated before signing — no
+  malformed addresses in transactions.
+- **Pre-broadcast simulation.** Every tx is run through `eth_call` first; if it
+  would revert, it is never signed or broadcast.
+- **Safe-by-default broadcast.** `flare-rebalance` only broadcasts when given
+  `--execute` (or `FLARE_ALLOW_LIVE=1`) — default is dry-run.
+- **Honest TEE disclosure.** In `simulated` mode a clear runtime warning states
+  the attestation is **not** enclave-backed; real confidential compute needs
+  `FLARE_CC_REAL=1` + the Flare CC enclave.
+
+> ⚠️ The "Confidential Compute" story is currently a **simulated attestation**
+> (a `sha256` anyone can recompute), not a real SGX quote. It demonstrates the
+> architecture honestly; wiring the real Flare CC enclave is on the roadmap.
 
 ## Status & roadmap
 

@@ -266,7 +266,10 @@ def cmd_flare_rebalance(args):
     rebalancer = FlareRebalancer()
     try:
         print("\n⮕ FlareKeeper: read treasury → decide (in TEE) → anchor → execute ...")
-        res = rebalancer.run_once(dry_run=args.dry_run, anchor=not args.no_anchor)
+        # Broadcast only with explicit --execute or FLARE_ALLOW_LIVE=1.
+        # Default is dry-run so no real funds ever move by accident.
+        dry_run = not (args.execute or C.FLARE_ALLOW_LIVE)
+        res = rebalancer.run_once(dry_run=dry_run, anchor=not args.no_anchor)
     except FlareError as e:
         print(f"ERROR: Could not reach Flare RPC: {e}")
         print("Check FLARE_RPC_URL / your network. Default Coston2: "
@@ -276,6 +279,12 @@ def cmd_flare_rebalance(args):
     if res.get("error"):
         print(f"ERROR: {res['error']}")
         return
+
+    if res.get("warning"):
+        print(f"  ⚠️  WARNING    : {res['warning']}")
+    if dry_run:
+        print("  MODE         : DRY-RUN (no on-chain broadcast). "
+              "Pass --execute to send real transactions.")
 
     pos = res["position"]
     att = res["attested_decision"]
@@ -435,8 +444,14 @@ def main():
         help="TEE-secured rebalance on Flare (read → decide in Confidential Compute → attest → anchor → execute)",
     )
     flare_reb_p.add_argument(
+        "--execute", action="store_true",
+        help="Actually BROADCAST on-chain. Without this, flare-rebalance only "
+             "builds + attests (dry-run). Set FLARE_ALLOW_LIVE=1 to allow "
+             "broadcast without the flag.",
+    )
+    flare_reb_p.add_argument(
         "--dry-run", action="store_true",
-        help="Build + attest the decision but do NOT broadcast on-chain",
+        help="Explicitly run without broadcasting (this is the default).",
     )
     flare_reb_p.add_argument(
         "--no-anchor", action="store_true",

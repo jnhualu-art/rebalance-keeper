@@ -26,13 +26,29 @@ test-USDC faucet. Set FLARE_USDC_ERC20 in .env.
 """
 
 import json
+import re
 import urllib.request
 import urllib.error
 from typing import Dict, Optional
 
 
+# A valid EVM address: 0x + 40 hex chars.
+_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
+
+
 class FlareError(Exception):
     """Raised when a Flare RPC call fails."""
+
+
+def validate_address(address: str) -> str:
+    """Return the lower-cased address if valid, else raise FlareError.
+
+    Called before any signing so a malformed / truncated address can never
+    end up in a real transaction.
+    """
+    if not isinstance(address, str) or not _ADDRESS_RE.match(address):
+        raise FlareError(f"Invalid Flare address: {address!r}")
+    return address.lower()
 
 
 class FlareClient:
@@ -49,6 +65,22 @@ class FlareClient:
         self.rpc_url = rpc_url or config.FLARE_RPC_URL
         self.chain_id = chain_id or config.FLARE_CHAIN_ID
         self.usdc_address = (usdc_address or config.FLARE_USDC_ERC20).lower()
+
+    # ── safety: refuse to operate on a swapped / wrong RPC ─────
+    def verify_chain(self) -> int:
+        """Assert the RPC actually serves the chain we configured.
+
+        A swapped/MITM RPC could lie about balances to trick the agent into
+        rebalancing. We refuse to sign if eth_chainId != configured chainId.
+        """
+        rpc_id = int(self._rpc("eth_chainId", []), 16)
+        if rpc_id != self.chain_id:
+            raise FlareError(
+                f"RPC chainId {rpc_id} != configured FLARE_CHAIN_ID "
+                f"{self.chain_id}. Refusing to sign — possible RPC swap / "
+                "wrong network."
+            )
+        return rpc_id
 
     # ── low-level RPC ──────────────────────────────────────────
     def _rpc(self, method: str, params: list) -> str:

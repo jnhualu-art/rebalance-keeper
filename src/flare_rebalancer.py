@@ -46,6 +46,18 @@ class FlareRebalancer:
         if not operational:
             return {"error": "FLARE_WALLET_ADDRESS not set in .env"}
 
+        # Safety: refuse to sign if the RPC is serving a different chain
+        # (swapped / MITM node could fake balances to trigger bad rebalances).
+        if hasattr(self.client, "verify_chain"):
+            try:
+                self.client.verify_chain()
+            except FlareError as e:
+                return {"error": f"Chain verification failed: {e}"}
+
+        # Funds may only ever move between operational <-> reserve. This set is
+        # passed to the executor as a recipient allowlist (defence-in-depth).
+        allowed = {operational, reserve} if reserve else {operational}
+
         pos = self.client.get_position(operational, floor_usdc=cfg.floor_usdc)
 
         # ── strategy runs confidentially (pure + serialisable) ──
@@ -76,6 +88,16 @@ class FlareRebalancer:
         attested: AttestedDecision = self.tee.compute(decision_inputs, strategy_fn)
         result = {"position": pos, "attested_decision": attested}
 
+        # Honest disclosure: in simulated mode the attestation is NOT
+        # enclave-backed. Surface it so operators never mistake the demo for
+        # real confidential compute.
+        if not self.tee.real:
+            result["warning"] = (
+                "TEE attestation is SIMULATED (sim:...) — NOT enclave-backed. "
+                "Set FLARE_CC_REAL=1 and wire the Flare CC enclave for real "
+                "confidential compute."
+            )
+
         # ── anchor the attestation on-chain ─────────────────────
         if anchor:
             try:
@@ -101,6 +123,7 @@ class FlareRebalancer:
                 exec_res = self.executor.transfer(
                     operational, reserve, amount,
                     config.FLARE_PRIVATE_KEY, dry_run=dry_run,
+                    allowed_recipients=allowed,
                 )
             elif action == "topup":
                 # reserve → operating (signed by reserve key)
@@ -109,6 +132,7 @@ class FlareRebalancer:
                 exec_res = self.executor.transfer(
                     reserve, operational, amount,
                     config.FLARE_RESERVE_PRIVATE_KEY, dry_run=dry_run,
+                    allowed_recipients=allowed,
                 )
             else:
                 exec_res = {"action": action, "note": "unknown action"}

@@ -15,6 +15,7 @@ import pytest
 from src import config
 from src.flare_tee import ConfidentialCompute, AttestedDecision
 from src.flare_executor import FlareExecutor, FlareExecutorError
+from src.flare_client import FlareClient, FlareError, validate_address
 from src.flare_rebalancer import FlareRebalancer
 
 
@@ -53,6 +54,7 @@ def _stub_executor(monkeypatch):
 
 A = "0x57047A430c4cfe335674e6bAD81b4D5F68ff505c"
 B = "0xeC3cD471c204c27493D9b5c5230479dEB421DD43"
+C = "0x1111111111111111111111111111111111111111"   # an attacker address (not allowed)
 
 
 def test_build_native_transfer(monkeypatch):
@@ -96,7 +98,7 @@ def test_build_anchor_carries_attestation(monkeypatch):
     att = "sim:deadbeef"
     tx = ex.build_anchor(A, "0x" + att.encode().hex())
     assert tx["value"] == "0x0"
-    assert tx["to"] == A                                  # self-transfer by default
+    assert tx["to"] == A.lower()                          # self-transfer by default (lower-cased)
     # calldata decodes back to the attestation string
     assert bytes.fromhex(tx["data"][2:]).decode() == att
 
@@ -136,8 +138,8 @@ class FakeExecutor:
         self.anchors.append((frm, attestation, dry_run))
         return {"dry_run": dry_run, "anchor_from": frm, "attestation": attestation}
 
-    def transfer(self, frm, to, amount, pk, dry_run=False):
-        self.transfers.append((frm, to, amount, dry_run))
+    def transfer(self, frm, to, amount, pk, dry_run=False, allowed_recipients=None):
+        self.transfers.append((frm, to, amount, dry_run, allowed_recipients))
         return {"dry_run": dry_run, "from": frm, "to": to, "amount": amount, "asset": "C2FLR"}
 
 
@@ -186,3 +188,60 @@ def test_loop_errors_without_wallet(monkeypatch):
     r = FlareRebalancer(client=FakeClient(30.0), executor=FakeExecutor())
     res = r.run_once(dry_run=True)
     assert "error" in res
+
+
+# ── security guardrails ──────────────────────────────────────
+def test_build_rejects_over_max_transfer(monkeypatch):
+    monkeypatch.setattr(config, "FLARE_ASSET_MODE", "native")
+    monkeypatch.setattr(config, "FLARE_MAX_TRANSFER", 10.0)
+    ex = _stub_executor(monkeypatch)
+    # 20 > cap 10 → must be refused (anti-drain)
+    with pytest.raises(FlareExecutorError):
+        ex.build_transfer(A, B, 20.0)
+
+
+def test_build_rejects_unallowed_recipient(monkeypatch):
+    monkeypatch.setattr(config, "FLARE_ASSET_MODE", "native")
+    ex = _stub_executor(monkeypatch)
+    # recipient C is not in the allowlist → must be refused
+    with pytest.raises(FlareExecutorError):
+        ex.build_transfer(A, C, 5.0, allowed_recipients={A, B})
+
+
+def test_validate_address():
+    assert validate_address(A) == A.lower()
+    with pytest.raises(FlareError):
+        validate_address("0x123")            # too short
+    with pytest.raises(FlareError):
+        validate_address("not-an-address")
+
+
+def test_verify_chain_mismatch(monkeypatch):
+    client = FlareClient()
+    # RPC lies and reports a different chain → refuse to sign
+    monkeypatch.setattr(client, "_rpc", lambda method, params: "0x1")
+    with pytest.raises(FlareError):
+        client.verify_chain()
+
+
+def test_simulate_rejects_revert(monkeypatch):
+    monkeypatch.setattr(config, "FLARE_ASSET_MODE", "native")
+    ex = _stub_executor(monkeypatch)
+    monkeypatch.setattr(ex, "_load_account", lambda pk: None)
+    # eth_call returns a revert → sign_and_send must refuse before broadcasting
+    def _rpc_fail(method, params):
+        if method == "eth_call":
+            raise FlareExecutorError("execution reverted")
+        return "0x" + hex(7)[2:]
+    monkeypatch.setattr(ex, "_rpc", _rpc_fail)
+    tx = ex.build_transfer(A, B, 5.0)
+    with pytest.raises(FlareExecutorError):
+        ex.sign_and_send(tx, "0x" + "11" * 32)
+
+
+def test_loop_warns_simulated_tee(monkeypatch):
+    # default (simulated) run must surface an honest warning
+    r, ex = _rebalancer(monkeypatch, balance=30.0)
+    res = r.run_once(dry_run=True)
+    assert "warning" in res
+    assert "SIMULATED" in res["warning"]
