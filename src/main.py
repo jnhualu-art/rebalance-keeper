@@ -261,29 +261,60 @@ def cmd_flare_rebalance(args):
     keys to reuse the EIP-1559 transfer path).
     """
     from src.flare_rebalancer import FlareRebalancer
+    from src import config as C
 
     rebalancer = FlareRebalancer()
     try:
-        print("\n⮕ FlareKeeper: read treasury → decide (in TEE) → attest ...")
-        res = rebalancer.run_once(dry_run=args.dry_run)
+        print("\n⮕ FlareKeeper: read treasury → decide (in TEE) → anchor → execute ...")
+        res = rebalancer.run_once(dry_run=args.dry_run, anchor=not args.no_anchor)
     except FlareError as e:
         print(f"ERROR: Could not reach Flare RPC: {e}")
         print("Check FLARE_RPC_URL / your network. Default Coston2: "
-              "https://coston2-api.flare.network/ext/bc/C/rpc")
+              "https://coston2-api.flare.network/ext/C/rpc")
+        return
+
+    if res.get("error"):
+        print(f"ERROR: {res['error']}")
         return
 
     pos = res["position"]
     att = res["attested_decision"]
+    sym = pos.get("asset_symbol", "USDC")
     print(f"  Wallet      : {pos['address']}")
-    print(f"  USDC        : {pos['usdc_balance']:.6f}")
+    print(f"  Treasury    : {pos['usdc_balance']:.6f} {sym}  (mode={pos.get('asset_mode')})")
+    print(f"  Gas (C2FLR) : {pos.get('native_flr_balance', 0):.6f}")
     print(f"  Chain       : {pos['chain_id']} (block {pos['block_number']})")
+    print(f"  Band        : [floor {C.FLARE_REBALANCE_CONFIG.floor_usdc:.0f} .. "
+          f"ceiling {C.FLARE_REBALANCE_CONFIG.ceiling_usdc:.0f}] {sym}")
     print(f"  Decision    : {att.decision['action']} "
-          f"{att.decision.get('amount_usdc', 0):.6f} USDC")
+          f"{att.decision.get('amount_usdc', 0):.6f} {sym}  [{att.decision['zone']}]")
     print(f"  Reason      : {att.decision['reason']}")
     print(f"  TEE mode    : {att.enclave_mode} (app {att.app_id})")
     print(f"  Attestation : {att.attestation}")
     print(f"  Verified    : {att.verified}")
-    print(f"  Execution   : {res['execution']}")
+
+    anchor = res.get("anchor")
+    if anchor:
+        if anchor.get("dry_run"):
+            print(f"  Anchor      : [DRY-RUN] would publish attestation in tx calldata")
+        elif anchor.get("skipped"):
+            print(f"  Anchor      : skipped ({anchor['skipped']})")
+        elif anchor.get("tx_hash"):
+            print(f"  Anchor tx   : {anchor['tx_hash']}")
+            print(f"                {anchor['explorer']}")
+
+    ex = res.get("execution", {})
+    if ex.get("action") == "none":
+        print(f"  Execution   : none — {ex.get('reason', 'healthy')}")
+    elif ex.get("dry_run"):
+        print(f"  Execution   : [DRY-RUN] {ex['action']} {ex['amount']:.6f} {sym} "
+              f"{ex['from']} → {ex['to']}")
+    elif ex.get("error"):
+        print(f"  Execution   : {ex['action']} FAILED — {ex['error']}")
+    elif ex.get("tx_hash"):
+        print(f"  Execution   : {ex['action']} {ex['amount']:.6f} {sym}")
+        print(f"  Rebalance tx: {ex['tx_hash']}")
+        print(f"                {ex['explorer']}")
 
 
 def _run_watch(rebalancer, dry_run: bool, interval: int):
@@ -401,11 +432,15 @@ def main():
 
     flare_reb_p = sub.add_parser(
         "flare-rebalance",
-        help="TEE-secured rebalance on Flare (read → decide inside Confidential Compute → attest)",
+        help="TEE-secured rebalance on Flare (read → decide in Confidential Compute → attest → anchor → execute)",
     )
     flare_reb_p.add_argument(
         "--dry-run", action="store_true",
-        help="Compute + attest the decision but do NOT broadcast on-chain",
+        help="Build + attest the decision but do NOT broadcast on-chain",
+    )
+    flare_reb_p.add_argument(
+        "--no-anchor", action="store_true",
+        help="Skip publishing the TEE attestation on-chain",
     )
 
     setup_p = sub.add_parser("setup", help="Set up a test position")

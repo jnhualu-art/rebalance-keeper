@@ -1,17 +1,16 @@
 """
 FlareKeeper — TEE-secured autonomous rebalancer (Flare Summer Signal Bounty 2).
 
-Pipeline:  read on-chain treasury  →  compute rebalance decision INSIDE a
-TEE (Confidential Compute)  →  return an *attested* decision that can be
-verified on-chain / consumed by a contract.
+Pipeline:
+  read on-chain treasury
+    → compute the rebalance decision INSIDE a TEE (Confidential Compute)
+    → ANCHOR the attestation on-chain (verifiable "this came from the strategy")
+    → EXECUTE the attested decision (native C2FLR or ERC-20 transfer)
 
-This is the "agent acts on its own, but its brain is confidential" half of
-the Confidential Compute Apps bounty. The actual on-chain *execution* of the
-decision (a USDC transfer on Flare) is a thin TODO — the rebalancer already
-proves the novel part: a private, attestable strategy.
+This is the full "agent acts on its own, but its brain is confidential AND its
+decisions are verifiable" loop for the Confidential Compute Apps bounty.
 
-All signing/execution wiring mirrors src/arc_executor.py; swap the USDC
-contract + chain config and it reuses the same EIP-1559 transfer path.
+Signing/execution reuse src/flare_executor.py (EIP-1559, mirrors arc_executor).
 """
 
 from typing import Dict, Optional
@@ -19,40 +18,54 @@ from typing import Dict, Optional
 from src import config
 from src.flare_client import FlareClient, FlareError
 from src.flare_tee import ConfidentialCompute, AttestedDecision
-from src.arc_position import evaluate, ArcRebalanceDecision
+from src.flare_executor import FlareExecutor, FlareExecutorError
+from src.arc_position import evaluate
 
 
 class FlareRebalancer:
-    def __init__(self, client: FlareClient = None, tee: ConfidentialCompute = None):
+    def __init__(
+        self,
+        client: FlareClient = None,
+        tee: ConfidentialCompute = None,
+        executor: FlareExecutor = None,
+    ):
         self.client = client or FlareClient()
         self.tee = tee or ConfidentialCompute()
+        self.executor = executor or FlareExecutor()
 
-    # ── read → decide (in TEE) → (execute TODO) ─────────────────
-    def run_once(self, dry_run: bool = False) -> Dict:
-        """Read the treasury, decide the rebalance INSIDE a TEE, attest it."""
+    # ── read → decide (in TEE) → anchor → execute ───────────────
+    def run_once(self, dry_run: bool = False, anchor: bool = True) -> Dict:
+        """One autonomous cycle. `anchor` publishes the attestation on-chain.
+
+        In dry_run mode nothing is broadcast — the built (unsigned) txs are
+        returned so the whole loop is inspectable without keys / gas.
+        """
+        cfg = config.FLARE_REBALANCE_CONFIG
         operational = config.FLARE_WALLET_ADDRESS
-        pos = self.client.get_position(
-            operational, floor_usdc=config.FLARE_REBALANCE_CONFIG.floor_usdc
-        )
+        reserve = config.FLARE_RESERVE_ADDRESS
+        if not operational:
+            return {"error": "FLARE_WALLET_ADDRESS not set in .env"}
 
-        # The strategy runs confidentially. `evaluate` is pure & serialisable.
+        pos = self.client.get_position(operational, floor_usdc=cfg.floor_usdc)
+
+        # ── strategy runs confidentially (pure + serialisable) ──
         decision_inputs = {
             "usdc_balance": pos["usdc_balance"],
-            "floor_usdc": config.FLARE_REBALANCE_CONFIG.floor_usdc,
-            "ceiling_usdc": config.FLARE_REBALANCE_CONFIG.ceiling_usdc,
-            "sweep_fraction": config.FLARE_REBALANCE_CONFIG.sweep_fraction,
-            "topup_fraction_danger": config.FLARE_REBALANCE_CONFIG.topup_fraction_danger,
+            "treasury_health": pos["treasury_health"],
+            "floor_usdc": cfg.floor_usdc,
+            "ceiling_usdc": cfg.ceiling_usdc,
+            "sweep_fraction": cfg.sweep_fraction,
+            "topup_fraction_danger": cfg.topup_fraction_danger,
         }
 
         def strategy_fn(inp: Dict) -> Dict:
-            # Reuse the chain-agnostic evaluator; map its output to a dict so
-            # it serialises cleanly into / out of the enclave.
             snapshot = {
                 "address": operational,
                 "usdc_balance": inp["usdc_balance"],
                 "floor_usdc": inp["floor_usdc"],
+                "treasury_health": inp["treasury_health"],
             }
-            zone, dec = evaluate(snapshot, config.FLARE_REBALANCE_CONFIG)
+            zone, dec = evaluate(snapshot, cfg)
             return {
                 "zone": zone,
                 "action": dec.action,
@@ -61,29 +74,53 @@ class FlareRebalancer:
             }
 
         attested: AttestedDecision = self.tee.compute(decision_inputs, strategy_fn)
+        result = {"position": pos, "attested_decision": attested}
 
-        result = {
-            "position": pos,
-            "attested_decision": attested,
-        }
+        # ── anchor the attestation on-chain ─────────────────────
+        if anchor:
+            try:
+                result["anchor"] = self.executor.anchor_attestation(
+                    operational, attested.attestation,
+                    config.FLARE_PRIVATE_KEY, dry_run=dry_run,
+                )
+            except FlareExecutorError as e:
+                result["anchor"] = {"skipped": str(e)}
 
-        # ── Execution (TODO) ─────────────────────────────────────
-        # Once FLARE_USDC_ERC20 + keys are set, mirror arc_executor.transfer_usdc
-        # to broadcast the attested decision on Flare. Kept out of the skeleton
-        # so the confidential-compute story is the demonstrable core.
-        if attested.decision["action"] != "none":
-            result["execution"] = (
-                "TODO: broadcast attested decision on Flare (wire FLARE_USDC_ERC20 "
-                "+ FLARE_PRIVATE_KEY, reuse EIP-1559 transfer path)"
-            )
-        else:
-            result["execution"] = "none — treasury healthy, no on-chain action"
+        # ── execute the attested decision ───────────────────────
+        action = attested.decision["action"]
+        amount = attested.decision.get("amount_usdc", 0.0)
+        if action == "none" or amount <= 0:
+            result["execution"] = {"action": "none", "reason": "treasury healthy"}
+            return result
+
+        try:
+            if action == "sweep":
+                # operating → reserve (signed by operational key)
+                if not reserve:
+                    raise FlareExecutorError("FLARE_RESERVE_ADDRESS not set")
+                exec_res = self.executor.transfer(
+                    operational, reserve, amount,
+                    config.FLARE_PRIVATE_KEY, dry_run=dry_run,
+                )
+            elif action == "topup":
+                # reserve → operating (signed by reserve key)
+                if not reserve:
+                    raise FlareExecutorError("FLARE_RESERVE_ADDRESS not set")
+                exec_res = self.executor.transfer(
+                    reserve, operational, amount,
+                    config.FLARE_RESERVE_PRIVATE_KEY, dry_run=dry_run,
+                )
+            else:
+                exec_res = {"action": action, "note": "unknown action"}
+            exec_res["action"] = action
+            result["execution"] = exec_res
+        except FlareExecutorError as e:
+            result["execution"] = {"action": action, "error": str(e)}
 
         return result
 
-    # ── explicit demo actions (optional, for manual proofs) ──────
+    # ── read-only status ────────────────────────────────────────
     def status(self) -> Dict:
-        """Read-only treasury report (no TEE needed)."""
         return self.client.get_position(
             config.FLARE_WALLET_ADDRESS,
             floor_usdc=config.FLARE_REBALANCE_CONFIG.floor_usdc,

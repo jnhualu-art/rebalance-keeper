@@ -221,20 +221,35 @@ ARC_REBALANCE_CONFIG = ArcRebalanceConfig()
 # Flare Summer Signal hackathon (DoraHacks), Bounty 2 — Confidential Compute Apps.
 # Docs: https://docs.flare.network  |  Explorer (Coston2): https://coston2-explorer.flare.network
 # Default network = Coston2 (Flare testnet) — free, fast, hackathon-friendly.
-FLARE_RPC_URL = os.getenv("FLARE_RPC_URL", "https://coston2-api.flare.network/ext/bc/C/rpc")
+FLARE_RPC_URL = os.getenv("FLARE_RPC_URL", "https://coston2-api.flare.network/ext/C/rpc")
 FLARE_CHAIN_ID = int(os.getenv("FLARE_CHAIN_ID", "114"))   # 114 = Coston2, 14 = Flare mainnet
 FLARE_CHAIN_NAME = "Flare Coston2 Testnet"
 FLARE_EXPLORER = "https://coston2-explorer.flare.network"
-# USDC ERC-20 on Flare. VERIFY against the Flare token registry before mainnet.
-# Coston2 testnet: get test-USDC from the Coston2 faucet and set FLARE_USDC_ERC20 in .env.
+
+# ── Treasury asset mode ──────────────────────────────────────
+# Coston2 has NO canonical USDC. Its faucet dispenses C2FLR (native gas, 18dp),
+# FXRP and USDT0. So FlareKeeper defaults to a NATIVE-token treasury: the agent
+# monitors & rebalances its native C2FLR balance between an operational and a
+# reserve wallet. This runs on Coston2 *today* with only a faucet claim — no
+# token contract to hunt down. Switch to a stablecoin (USDT0/USDC) by setting
+# FLARE_ASSET_MODE=erc20 + FLARE_USDC_ERC20 in .env.
+FLARE_ASSET_MODE = os.getenv("FLARE_ASSET_MODE", "native").lower()   # "native" | "erc20"
+FLARE_NATIVE_SYMBOL = os.getenv("FLARE_NATIVE_SYMBOL", "C2FLR")
+FLARE_NATIVE_DECIMALS = 18
+# ERC-20 stablecoin on Flare (used only when FLARE_ASSET_MODE=erc20).
+# VERIFY against the Flare token registry / Coston2 faucet before use.
 FLARE_USDC_ERC20 = os.getenv("FLARE_USDC_ERC20", "")
 FLARE_USDC_DECIMALS = int(os.getenv("FLARE_USDC_DECIMALS", "6"))
 # Wallet to monitor on Flare. Set FLARE_WALLET_ADDRESS in .env (a Coston2 address).
 FLARE_WALLET_ADDRESS = os.getenv("FLARE_WALLET_ADDRESS", "")
-# Reserve wallet the agent pulls USDC from / sweeps excess to (optional for demo).
+# Reserve wallet the agent pulls funds from / sweeps excess to (optional for demo).
 FLARE_RESERVE_ADDRESS = os.getenv("FLARE_RESERVE_ADDRESS", "")
 FLARE_PRIVATE_KEY = os.getenv("FLARE_PRIVATE_KEY", "")
 FLARE_RESERVE_PRIVATE_KEY = os.getenv("FLARE_RESERVE_PRIVATE_KEY", "")
+# Where to anchor the TEE attestation on-chain. Defaults to a self-transfer of
+# the operational wallet (0-value native tx carrying the attestation in
+# calldata) so anyone can verify "this decision came from the attested strategy".
+FLARE_ANCHOR_ADDRESS = os.getenv("FLARE_ANCHOR_ADDRESS", "")
 
 
 # ── Flare (Treasury) Rebalance Config ─────────────────────────
@@ -262,3 +277,13 @@ class FlareRebalanceConfig:
 
 # Default Flare config instance
 FLARE_REBALANCE_CONFIG = FlareRebalanceConfig()
+
+
+def flare_treasury_decimals() -> int:
+    """Decimals of the treasury asset (native C2FLR = 18, ERC-20 stable = 6)."""
+    return FLARE_NATIVE_DECIMALS if FLARE_ASSET_MODE == "native" else FLARE_USDC_DECIMALS
+
+
+def flare_treasury_symbol() -> str:
+    """Human label for the treasury asset in the current mode."""
+    return FLARE_NATIVE_SYMBOL if FLARE_ASSET_MODE == "native" else "USDC"

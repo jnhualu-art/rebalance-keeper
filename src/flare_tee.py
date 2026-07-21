@@ -26,7 +26,7 @@ This module is the integration seam. It runs in two modes:
   2. REAL (TODO): submit the strategy payload to a Flare Confidential
      Compute enclave, get back the signed quote + result.
 
-FLASH CONFIDENTIAL COMPUTE — REAL INTEGRATION (TODO, research before ship)
+FLARE CONFIDENTIAL COMPUTE — REAL INTEGRATION (TODO, research before ship)
 --------------------------------------------------------------------------
 Flare runs a network of enclaves. The high-level flow:
   a. Package the strategy as a CC app (the enclave binary / wasm).
