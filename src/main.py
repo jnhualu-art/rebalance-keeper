@@ -295,15 +295,15 @@ def cmd_flare_rebalance(args):
 
     pos = res["position"]
     att = res["attested_decision"]
-    sym = pos.get("asset_symbol", "USDC")
+    sym = pos.get("asset_symbol", "C2FLR")
     print(f"  Wallet      : {pos['address']}")
-    print(f"  Treasury    : {pos['usdc_balance']:.6f} {sym}  (mode={pos.get('asset_mode')})")
+    print(f"  Treasury    : {pos['treasury_balance']:.6f} {sym}  (mode={pos.get('asset_mode')})")
     print(f"  Gas (C2FLR) : {pos.get('native_flr_balance', 0):.6f}")
     print(f"  Chain       : {pos['chain_id']} (block {pos['block_number']})")
-    print(f"  Band        : [floor {C.FLARE_REBALANCE_CONFIG.floor_usdc:.0f} .. "
-          f"ceiling {C.FLARE_REBALANCE_CONFIG.ceiling_usdc:.0f}] {sym}")
+    print(f"  Band        : [floor {C.FLARE_REBALANCE_CONFIG.floor:.0f} .. "
+          f"ceiling {C.FLARE_REBALANCE_CONFIG.ceiling:.0f}] {sym}")
     print(f"  Decision    : {att.decision['action']} "
-          f"{att.decision.get('amount_usdc', 0):.6f} {sym}  [{att.decision['zone']}]")
+          f"{att.decision.get('amount', 0):.6f} {sym}  [{att.decision['zone']}]")
     print(f"  Reason      : {att.decision['reason']}")
     print(f"  TEE mode    : {att.enclave_mode} (app {att.app_id})")
     print(f"  Attestation : {att.attestation}")

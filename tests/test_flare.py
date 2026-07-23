@@ -25,9 +25,9 @@ def test_tee_simulated_attestation():
     cc = ConfidentialCompute(real=False)
 
     def strat(inp):
-        return {"action": "sweep", "amount_usdc": 5.0, "zone": "OVER", "reason": "x"}
+        return {"action": "sweep", "amount": 5.0, "zone": "OVER", "reason": "x"}
 
-    att = cc.compute({"usdc_balance": 55.0, "floor_usdc": 20.0}, strat)
+    att = cc.compute({"treasury_balance": 55.0, "floor": 20.0}, strat)
     assert isinstance(att, AttestedDecision)
     assert att.enclave_mode == "simulated"
     assert att.verified is True
@@ -38,8 +38,8 @@ def test_tee_simulated_attestation():
 def test_tee_real_falls_back_to_simulated():
     # Real enclave not wired yet → must not break the loop.
     cc = ConfidentialCompute(real=True)
-    att = cc.compute({"usdc_balance": 10.0, "floor_usdc": 20.0},
-                     lambda i: {"action": "topup", "amount_usdc": 10.0,
+    att = cc.compute({"treasury_balance": 10.0, "floor": 20.0},
+                     lambda i: {"action": "topup", "amount": 10.0,
                                 "zone": "CRITICAL", "reason": "y"})
     assert att.decision["action"] == "topup"
     assert att.attestation.startswith("sim:")
@@ -116,15 +116,15 @@ class FakeClient:
     def __init__(self, balance):
         self.balance = balance
 
-    def get_position(self, address, floor_usdc=50.0):
+    def get_position(self, address, floor=50.0):
         return {
             "address": address,
-            "usdc_balance": self.balance,
+            "treasury_balance": self.balance,
             "native_flr_balance": self.balance,
             "asset_mode": "native",
             "asset_symbol": "C2FLR",
-            "floor_usdc": floor_usdc,
-            "treasury_health": (self.balance / floor_usdc) if floor_usdc else float("inf"),
+            "floor": floor,
+            "treasury_health": (self.balance / floor) if floor else float("inf"),
             "block_number": 123,
             "chain_id": 114,
         }

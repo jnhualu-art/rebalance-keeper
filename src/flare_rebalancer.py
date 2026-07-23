@@ -58,30 +58,32 @@ class FlareRebalancer:
         # passed to the executor as a recipient allowlist (defence-in-depth).
         allowed = {operational, reserve} if reserve else {operational}
 
-        pos = self.client.get_position(operational, floor_usdc=cfg.floor_usdc)
+        pos = self.client.get_position(operational, floor=cfg.floor)
 
         # ── strategy runs confidentially (pure + serialisable) ──
         decision_inputs = {
-            "usdc_balance": pos["usdc_balance"],
+            "treasury_balance": pos["treasury_balance"],
             "treasury_health": pos["treasury_health"],
-            "floor_usdc": cfg.floor_usdc,
-            "ceiling_usdc": cfg.ceiling_usdc,
+            "floor": cfg.floor,
+            "ceiling": cfg.ceiling,
             "sweep_fraction": cfg.sweep_fraction,
             "topup_fraction_danger": cfg.topup_fraction_danger,
         }
 
         def strategy_fn(inp: Dict) -> Dict:
+            # The shared cross-chain evaluator (arc_position.evaluate) reads
+            # "usdc_balance" / "floor_usdc"; map Flare's treasury fields onto it.
             snapshot = {
                 "address": operational,
-                "usdc_balance": inp["usdc_balance"],
-                "floor_usdc": inp["floor_usdc"],
+                "usdc_balance": inp["treasury_balance"],
+                "floor_usdc": inp["floor"],
                 "treasury_health": inp["treasury_health"],
             }
             zone, dec = evaluate(snapshot, cfg)
             return {
                 "zone": zone,
                 "action": dec.action,
-                "amount_usdc": dec.amount_usdc,
+                "amount": dec.amount_usdc,
                 "reason": dec.reason,
             }
 
@@ -110,7 +112,7 @@ class FlareRebalancer:
 
         # ── execute the attested decision ───────────────────────
         action = attested.decision["action"]
-        amount = attested.decision.get("amount_usdc", 0.0)
+        amount = attested.decision.get("amount", 0.0)
         if action == "none" or amount <= 0:
             result["execution"] = {"action": "none", "reason": "treasury healthy"}
             return result
@@ -147,5 +149,5 @@ class FlareRebalancer:
     def status(self) -> Dict:
         return self.client.get_position(
             config.FLARE_WALLET_ADDRESS,
-            floor_usdc=config.FLARE_REBALANCE_CONFIG.floor_usdc,
+            floor=config.FLARE_REBALANCE_CONFIG.floor,
         )

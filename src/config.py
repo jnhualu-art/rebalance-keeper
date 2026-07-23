@@ -277,8 +277,8 @@ class FlareRebalanceConfig:
     src/flare_tee.py and src/flare_rebalancer.py.
     """
 
-    floor_usdc: float = 20.0          # minimum operating USDC balance
-    ceiling_usdc: float = 50.0        # max operating USDC; excess swept to reserve
+    floor: float = 20.0              # minimum operating treasury balance (native C2FLR on Coston2)
+    ceiling: float = 50.0            # max operating treasury; excess swept to reserve
     sweep_fraction: float = 1.0       # fraction of excess swept per trigger
     safe_threshold: float = 2.0
     warn_threshold: float = 1.5

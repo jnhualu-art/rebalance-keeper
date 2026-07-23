@@ -33,9 +33,11 @@ def evaluate(position: Dict, cfg: Optional[config.ArcRebalanceConfig] = None) ->
                              severity (WARNING/DANGER/CRITICAL) by how far below
     """
     cfg = cfg or config.ARC_REBALANCE_CONFIG
-    current = position["usdc_balance"]
-    floor = position["floor_usdc"]
-    ceiling = cfg.ceiling_usdc
+    # Cross-chain compatible: Flare uses treasury_balance/floor/ceiling,
+    # Arc keeps usdc_balance/floor_usdc/ceiling_usdc.
+    current = position.get("treasury_balance", position.get("usdc_balance"))
+    floor = position.get("floor", position.get("floor_usdc"))
+    ceiling = getattr(cfg, "ceiling", None) or getattr(cfg, "ceiling_usdc")
     health = position["treasury_health"]  # = current / floor
 
     # 1) Over-funded: keep only `ceiling` in the operating wallet, sweep the rest.
@@ -46,7 +48,7 @@ def evaluate(position: Dict, cfg: Optional[config.ArcRebalanceConfig] = None) ->
             return "OVER", ArcRebalanceDecision(
                 "sweep", "OVER", amount,
                 f"Operating {current:.2f} > ceiling {ceiling:.2f}; "
-                f"sweep {amount:.2f} USDC to reserve",
+                f"sweep {amount:.2f} to reserve",
             )
 
     # 2) Healthy band [floor, ceiling]: no action, just report.
@@ -66,7 +68,7 @@ def evaluate(position: Dict, cfg: Optional[config.ArcRebalanceConfig] = None) ->
     if amount >= 1e-6:
         return zone, ArcRebalanceDecision(
             "topup", zone, amount,
-            f"Below floor; pull {amount:.2f} USDC from reserve to restore",
+            f"Below floor; pull {amount:.2f} from reserve to restore",
         )
     return "CRITICAL", ArcRebalanceDecision("none", "CRITICAL", 0.0, "Deficit negligible")
 

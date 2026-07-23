@@ -155,25 +155,24 @@ class FlareClient:
         return self.get_native_balance(address)
 
     # ── position snapshot ──────────────────────────────────────
-    def get_position(self, address: str, floor_usdc: float = 50.0) -> Dict:
+    def get_position(self, address: str, floor: float = 50.0) -> Dict:
         """Read a treasury position: real on-chain balance + health metric.
 
-        `usdc_balance` holds the treasury-asset balance (native C2FLR by
-        default, or the ERC-20 stable if FLARE_ASSET_MODE=erc20). The field
-        name is kept for cross-chain compatibility with the Arc evaluator.
+        `treasury_balance` holds the treasury-asset balance (native C2FLR by
+        default, or the ERC-20 stable if FLARE_ASSET_MODE=erc20).
         """
         from src import config
 
         treasury = self.get_treasury_balance(address)
         native = self.get_native_balance(address)
-        health = (treasury / floor_usdc) if floor_usdc > 0 else float("inf")
+        health = (treasury / floor) if floor > 0 else float("inf")
         return {
             "address": address,
-            "usdc_balance": treasury,      # treasury asset (native or ERC-20)
+            "treasury_balance": treasury,      # treasury asset (native or ERC-20)
             "native_flr_balance": native,  # gas side (always native C2FLR)
             "asset_mode": config.FLARE_ASSET_MODE,
             "asset_symbol": config.flare_treasury_symbol(),
-            "floor_usdc": floor_usdc,
+            "floor": floor,
             "treasury_health": health,
             "block_number": self.get_block_number(),
             "chain_id": self.chain_id,
