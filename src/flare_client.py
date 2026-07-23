@@ -3,9 +3,10 @@ FlareKeeper — Flare network client (stdlib JSON-RPC, EVM compatible).
 
 Flare is an EVM-compatible L1 focused on data protocols and *Confidential
 Compute* (TEE-secured off-chain execution that attests results on-chain).
-This client reads on-chain USDC balances so the agent can monitor its
-treasury and decide rebalances — the same zero-dependency (urllib-only)
-philosophy as the rest of RebalanceKeeper.
+This client reads on-chain treasury balances (native C2FLR by default on
+Coston2; an ERC-20 stablecoin such as USDT0/USDC when FLARE_ASSET_MODE=erc20)
+so the agent can monitor its treasury and decide rebalances — the same
+zero-dependency (urllib-only) philosophy as the rest of RebalanceKeeper.
 
 Verified network parameters (Flare docs / chainlist):
   - Coston2 (Flare testnet, recommended for hackathon):
