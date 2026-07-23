@@ -71,8 +71,8 @@ Full details and explorer links are in `README.md` and `docs/ARC_MIGRATION.md`.
 ---
 
 **Submission checklist:**
-- [ ] GitHub repo link (branch `keeperhub-hackathon`)
-- [ ] Demo video
-- [ ] Real on-chain transaction links
-- [ ] BUIDL description pasted above
-- [ ] Track: Agents Onchain
+- [x] GitHub repo link → https://github.com/jnhualu-art/rebalance-keeper/tree/keeperhub-hackathon
+- [x] Demo video → https://youtu.be/UuerezHxdl4 (KeeperHub 专属录屏,已确认有效)
+- [x] Real on-chain transaction links (5 笔 Sepolia tx 见上)
+- [x] BUIDL description pasted above
+- [x] Track: Agents Onchain
