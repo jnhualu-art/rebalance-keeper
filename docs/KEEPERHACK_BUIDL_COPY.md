@@ -45,11 +45,11 @@ python -m src.keeperhub_agent --watch
 
 | Action | TX Hash |
 |---|---|
-| supply WETH | `0x8079...b3fd` |
-| setCollateral | `0xb58a...` |
-| borrow 100 USDC | `0x012e...` |
-| borrow 30 USDC | `0xd9b5...` |
-| repay 32.5 USDC | `0x22ae...` |
+| supply WETH | `0x8079...bb28c` |
+| setCollateral | `0xb58a...c7f0` |
+| borrow 100 USDC | `0x012e...860d` |
+| borrow 30 USDC | `0xd9b5...16e2` |
+| repay 32.5 USDC | `0x22ae...c857` |
 
 Full details and explorer links are in `README.md` and `docs/ARC_MIGRATION.md`.
 

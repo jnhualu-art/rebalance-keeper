@@ -423,7 +423,11 @@ class KeeperHubClient:
             try:
                 call_params = dict(params)
                 if idempotency_key:
-                    call_params["idempotency_key"] = f"{idempotency_key}_{attempt}"
+                    # IMPORTANT: reuse the SAME idempotency key across retries.
+                    # If a prior attempt actually broadcast on-chain but the
+                    # response was lost, a *different* key would double-execute.
+                    # KeeperHub dedupes on this key, so retries are safe.
+                    call_params["idempotency_key"] = idempotency_key
                 res = self._call_tool("execute_protocol_action", {
                     "actionType": action_type,
                     "params": call_params,

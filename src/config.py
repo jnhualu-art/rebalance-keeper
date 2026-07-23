@@ -174,6 +174,11 @@ class RebalanceConfig:
     # Cooldown: minimum seconds between rebalance actions
     cooldown_seconds: int = 120
 
+    # SECURITY: hard ceiling (USD) on a single rebalance action. A sane upper
+    # bound protects against a bad HF reading or a units bug producing a runaway
+    # repay/supply. Overridable via MAX_REBALANCE_USD env var.
+    max_rebalance_usd: float = float(os.getenv("MAX_REBALANCE_USD", "10000"))
+
 
 # Default config instance
 REBALANCE_CONFIG = RebalanceConfig()
