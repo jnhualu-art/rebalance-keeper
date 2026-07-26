@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ArcKeeper — Encode Programmable Money Hackathon · CP2 Deck</title>
+<style>
+  :root{
+    --bg0:#070b1a; --bg1:#0d1430; --cyan:#2dd4ff; --cyan2:#38bdf8;
+    --purple:#7c5cff; --green:#22d3a0; --text:#e6edf6; --muted:#8a98b5;
+    --line:rgba(45,212,255,.18); --card:rgba(255,255,255,.04);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{
+    font-family:"Segoe UI",system-ui,-apple-system,"Microsoft YaHei",sans-serif;
+    background:radial-gradient(1200px 700px at 70% -10%,#13204a 0%,var(--bg1) 45%,var(--bg0) 100%);
+    color:var(--text); overflow:hidden; user-select:none;
+  }
+  .mono{font-family:"SF Mono",Consolas,"Roboto Mono",monospace;}
+  .deck{position:relative; width:100vw; height:100vh;}
+  .slide{
+    position:absolute; inset:0; display:none; flex-direction:column;
+    align-items:center; justify-content:center; padding:5vh 7vw; text-align:center;
+  }
+  .slide.active{display:flex; animation:fade .45s ease;}
+  @keyframes fade{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:none;}}
+  .tag{
+    display:inline-block; font-size:12px; letter-spacing:.18em; text-transform:uppercase;
+    color:var(--cyan); border:1px solid var(--line); border-radius:999px;
+    padding:5px 14px; margin-bottom:18px; background:rgba(45,212,255,.06);
+  }
+  h1{font-size:clamp(30px,5.4vw,60px); line-height:1.05; font-weight:800;
+     background:linear-gradient(90deg,#fff,var(--cyan)); -webkit-background-clip:text;
+     background-clip:text; color:transparent; margin-bottom:12px;}
+  h2{font-size:clamp(22px,3.6vw,38px); font-weight:800; margin-bottom:14px; color:#fff;}
+  .sub{font-size:clamp(14px,1.8vw,18px); color:var(--muted); max-width:760px; line-height:1.55;}
+  .grid{display:grid; gap:14px; width:100%; max-width:920px; margin-top:14px;}
+  .grid.c2{grid-template-columns:1fr 1fr;}
+  .grid.c3{grid-template-columns:repeat(3,1fr);}
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:18px 18px; text-align:left;
+  }
+  .card h3{font-size:18px; color:var(--cyan); margin-bottom:8px;}
+  .card p{font-size:14px; color:var(--muted); line-height:1.5;}
+  .card .v{color:var(--text); font-weight:600;}
+  ul.checks{list-style:none; text-align:left; max-width:760px; margin-top:14px;}
+  ul.checks li{font-size:15px; color:var(--text); padding:6px 0; padding-left:24px; position:relative; line-height:1.5;}
+  ul.checks li::before{content:"✓"; position:absolute; left:0; top:6px; color:var(--green); font-weight:700;}
+  .footer{position:fixed; bottom:14px; left:0; right:0; text-align:center; font-size:12px; color:var(--muted);}
+  .nav{
+    position:fixed; right:18px; top:50%; transform:translateY(-50%);
+    display:flex; flex-direction:column; gap:8px; z-index:9;
+  }
+  .nav button{
+    width:30px; height:30px; border-radius:50%; border:1px solid var(--line);
+    background:rgba(255,255,255,.04); color:var(--text); font-size:14px; cursor:pointer;
+  }
+  .nav button:hover{background:rgba(45,212,255,.12); border-color:var(--cyan);}
+  .pager{position:fixed; top:18px; right:22px; font-size:12px; color:var(--muted); z-index:9;}
+  .pager b{color:var(--cyan);}
+  pre.code{
+    background:rgba(0,0,0,.35); border:1px solid var(--line); border-radius:10px;
+    padding:14px 18px; font-size:12.5px; color:#9bd7ff; overflow:auto; max-width:860px;
+    text-align:left; line-height:1.45;
+  }
+  a.link{color:var(--cyan2); text-decoration:none; border-bottom:1px dashed var(--cyan2);}
+  .txrow{
+    background:rgba(34,211,160,.06); border:1px solid rgba(34,211,160,.25);
+    border-radius:10px; padding:12px 16px; margin:6px 0; text-align:left;
+    font-size:13px; color:var(--text);
+  }
+  .txrow b{color:var(--green);}
+  .txrow a{color:var(--cyan2); text-decoration:none;}
+</style>
+</head>
+<body>
+<div class="deck">
+
+  <!-- Slide 1: Title -->
+  <section class="slide active">
+    <span class="tag">Encode Programmable Money · Checkpoint 2 · Agentic Economy</span>
+    <h1>ArcKeeper</h1>
+    <h2 style="font-size:clamp(18px,2.6vw,26px);color:var(--muted);font-weight:500;">
+      Autonomous USDC Treasury on Arc
+    </h2>
+    <p class="sub" style="margin-top:18px;">
+      An on-chain agent that monitors a USDC treasury and rebalances it
+      <b style="color:var(--cyan);">without a human in the loop</b> — using signed
+      EIP-1559 transactions, threshold logic, and zero external dependencies.
+    </p>
+2.    <p class="sub mono" style="margin-top:14px;color:var(--cyan);">Hot ↔ Cold · Arc Testnet · Native USDC</p>
+    <p class="sub mono" style="margin-top:8px;color:var(--muted);">陆俊华 · Agentic Economy Track</p>
+  </section>
+
+  <!-- Slide 2: Problem & Solution -->
+  <section class="slide">
+    <span class="tag">Why</span>
+    <h2>Problem → Solution</h2>
+    <div class="grid c2" style="margin-top:22px;">
+      <div class="card">
+        <h3>❌ Today</h3>
+        <p>Stablecoin treasuries are managed by hand — humans watch dashboards, copy-paste addresses, sign txs.<br><br>
+        Slow, error-prone, fails at 3am when risk spikes.</p>
+      </div>
+      <div class="card">
+        <h3>✅ ArcKeeper</h3>
+        <p>An agent that <b>watches</b> the on-chain USDC balance, <b>decides</b> based on a threshold band,
+        and <b>signs & broadcasts</b> the move itself.<br><br>
+        Truly autonomous — agent is its own custodian.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Slide 3: Architecture -->
+  <section class="slide">
+    <span class="tag">How</span>
+    <h2>Architecture</h2>
+    <div class="grid c3" style="margin-top:18px;">
+      <div class="card">
+        <h3>📊 Read</h3>
+        <p><span class="v">Arc RPC</span> (chainId 5042002) →<br>
+        <span class="mono">eth_call USDC.balanceOf(agent)</span></p>
+      </div>
+      <div class="card">
+        <h3>🧠 Decide</h3>
+        <p>Threshold band<br><span class="mono">[floor, ceiling]</span><br>
+        SAFE / WARNING / DANGER / CRITICAL</p>
+      </div>
+      <div class="card">
+        <h3>✍️ Execute</h3>
+        <p><span class="v">EIP-1559</span> signed by agent key<br>
+        Dry-run by default · <span class="mono">--execute</span> to broadcast</p>
+      </div>
+    </div>
+    <p class="sub mono" style="margin-top:18px;color:var(--muted);">Python 3.13 · stdlib only + eth_account · no web3.py · no TEE dependency</p>
+  </section>
+
+  <!-- Slide 4: Proof on-chain -->
+  <section class="slide">
+    <span class="tag">Proof · Live on Arc Testnet</span>
+    <h2>Two real on-chain transactions</h2>
+    <p class="sub" style="margin-bottom:12px;">Both confirmed · both `NativeFiatTokenV2_2` (Arc's real USDC contract) · no mocks</p>
+    <div class="txrow">
+      <b>Sweep · hot → reserve · 5 USDC</b><br>
+      <span class="mono">0xe24a56a208913fee980d339029b733309c0ddcd86de3ce4be3a9ae486a4b8664</span>
+      → <a href="https://testnet.arcscan.app/tx/0xe24a56a208913fee980d339029b733309c0ddcd86de3ce4be3a9ae486a4b8664" target="_blank">arcscan</a>
+    </div>
+    <div class="txrow">
+      <b>Top-up · reserve → hot · 5 USDC</b><br>
+      <span class="mono">0xeae89dc2c4fd37ce4c1b812776755d3f8d48d7d89abdd523d935d888b75740b3</span>
+      → <a href="https://testnet.arcscan.app/tx/0xeae89dc2c4fd37ce4c1b812776755d3f8d48d7d89abdd523d935d888b75740b3" target="_blank">arcscan</a>
+    </div>
+4.    <p class="sub" style="margin-top:16px;font-size:13px;color:var(--muted);">
+      Funds stay inside the agent's own wallet boundary — agent is its own custodian.
+    </p>
+  </section>
+
+  <!-- Slide 5: Security & Next -->
+  <section class="slide">
+    <span class="tag">Security + Roadmap</span>
+    <h2>Built safe · shipping forward</h2>
+    <div class="grid c2" style="margin-top:18px;">
+      <div class="card">
+        <h3>🛡️ Safety guards</h3>
+        <ul class="checks" style="margin-top:6px;">
+          <li>Chain-id binding (Arc only)</li>
+          <li>EIP-55 checksum validation</li>
+          <li>Monotonic nonces</li>
+          <li>Dry-run by default; <span class="mono">--execute</span> required to broadcast</li>
+          <li>13 unit tests — all green</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>🛣️ Next (Checkpoint 3, Aug 9)</h3>
+        <ul class="checks" style="margin-top:6px;">
+          <li>Trigger rebalance from on-chain balance monitors (autonomous loop)</li>
+          <li>Plug Circle Agent Stack for wallet custody</li>
+          <li>Deploy executor to Aave/Compound on Arc</li>
+          <li>3-min demo video + public deck</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Slide 6: Links -->
+  <section class="slide">
+    <span class="tag">End</span>
+    <h1 style="font-size:clamp(28px,4.4vw,48px);">Thanks · let's ship</h1>
+    <pre class="code mono">
+Repo (Arc-migration branch)
+  https://github.com/jnhualu-art/rebalance-keeper/tree/arc-migration
+
+Live proof · Arc Testnet
+  Sweep  : https://testnet.arcscan.app/tx/0xe24a56a2...b8664
+  Top-up : https://testnet.arcscan.app/tx/0xeae89dc2...740b3
+
+Contact
+  Discord : lu-lu-jh
+  Track   : Agentic Economy (Programmable Money Hackathon)
+    </pre>
+  </section>
+
+</div>
+
+<div class="pager"><b id="cur">1</b> / <span id="total">6</span></div>
+<div class="nav">
+  <button id="prev" title="Previous">‹</button>
+  <button id="next" title="Next">›</button>
+</div>
+<div class="footer">ArcKeeper · Encode CP2 · Agentic Economy · Click or use → arrow keys</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  document.getElementById('total').textContent = total;
+  let idx = 0;
+  function show(i){
+    if(i<0) i=0; if(i>=total) i=total-1;
+    slides.forEach(s=>s.classList.remove('active'));
+    slides[i].classList.add('active');
+    document.getElementById('cur').textContent = i+1;
+1.    idx = i;
+  }
+  document.getElementById('next').onclick = ()=>show(idx+1);
+  document.getElementById('prev').onclick = ()=>show(idx-1);
+  document.addEventListener('keydown', e=>{
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown') show(idx+1);
+    else if(e.key==='ArrowLeft'||e.key==='PageUp') show(idx-1);
+  });
+  // Click anywhere on slide to advance (except buttons/links)
+  document.querySelectorAll('.slide').forEach(s=>s.addEventListener('click', e=>{
+    if(e.target.tagName==='A'||e.target.tagName==='BUTTON') return;
+    show(idx+1);
+  }));
+</script>
+</body>
+</html>
