@@ -8,20 +8,22 @@ Turns an ArcRebalanceDecision into a real on-chain USDC transfer:
             (when the treasury is far above its floor)
 
 This is the "agent acts on its own" half of the Agentic Economy track.
-All signing happens locally via ArcExecutor; keys come from .env.
+Signing/broadcast happens through a pluggable `WalletBackend` (local key by
+default, Circle Agent Stack custody when ARC_WALLET_BACKEND=circle), so the
+custody model is swappable without touching this logic.
 """
 
 from typing import Dict, Optional
 
 from src import config
 from src.arc_client import ArcClient, ArcError
-from src.arc_executor import ArcExecutor, ArcExecutorError
 from src.arc_position import evaluate, ArcRebalanceDecision
+from src.arc_wallet_backends import get_backend, WalletBackend, WalletBackendError
 
 
 class ArcRebalancer:
-    def __init__(self, executor: ArcExecutor = None, client: ArcClient = None):
-        self.executor = executor or ArcExecutor()
+    def __init__(self, backend: WalletBackend = None, client: ArcClient = None):
+        self.backend = backend or get_backend()
         self.client = client or ArcClient()
 
     # ── read → decide → act ────────────────────────────────────
@@ -41,16 +43,10 @@ class ArcRebalancer:
             if not reserve:
                 result["error"] = "ARC_RESERVE_ADDRESS not set — cannot top up."
                 return result
-            if not config.ARC_RESERVE_PRIVATE_KEY:
-                result["error"] = "ARC_RESERVE_PRIVATE_KEY not set — cannot sign top-up."
-                return result
             result["action"] = self._topup(decision, operational, reserve, dry_run)
         elif decision.action == "sweep":
             if not reserve:
                 result["error"] = "ARC_RESERVE_ADDRESS not set — cannot sweep."
-                return result
-            if not config.ARC_PRIVATE_KEY:
-                result["error"] = "ARC_PRIVATE_KEY not set — cannot sign sweep."
                 return result
             result["action"] = self.sweep(decision.amount_usdc, dry_run=dry_run)
 
@@ -64,7 +60,7 @@ class ArcRebalancer:
         dry_run: bool,
     ) -> Dict:
         """Pull `decision.amount_usdc` from reserve → operational."""
-        return self.executor.transfer_usdc(
+        return self.backend.transfer_usdc(
             from_address=reserve,
             to_address=operational,
             amount_usdc=decision.amount_usdc,
@@ -78,10 +74,8 @@ class ArcRebalancer:
         operational = config.ARC_WALLET_ADDRESS
         reserve = config.ARC_RESERVE_ADDRESS
         if not reserve:
-            raise ArcExecutorError("ARC_RESERVE_ADDRESS not set — cannot sweep.")
-        if not dry_run and not config.ARC_PRIVATE_KEY:
-            raise ArcExecutorError("ARC_PRIVATE_KEY not set — cannot sign sweep.")
-        return self.executor.transfer_usdc(
+            raise WalletBackendError("ARC_RESERVE_ADDRESS not set — cannot sweep.")
+        return self.backend.transfer_usdc(
             from_address=operational,
             to_address=reserve,
             amount_usdc=amount_usdc,
@@ -94,10 +88,8 @@ class ArcRebalancer:
         operational = config.ARC_WALLET_ADDRESS
         reserve = config.ARC_RESERVE_ADDRESS
         if not reserve:
-            raise ArcExecutorError("ARC_RESERVE_ADDRESS not set — cannot top up.")
-        if not dry_run and not config.ARC_RESERVE_PRIVATE_KEY:
-            raise ArcExecutorError("ARC_RESERVE_PRIVATE_KEY not set — cannot sign top-up.")
-        return self.executor.transfer_usdc(
+            raise WalletBackendError("ARC_RESERVE_ADDRESS not set — cannot top up.")
+        return self.backend.transfer_usdc(
             from_address=reserve,
             to_address=operational,
             amount_usdc=amount_usdc,

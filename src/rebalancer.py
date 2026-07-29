@@ -162,6 +162,12 @@ class Rebalancer:
         decimals = debt_token["decimals"]
         debt_usd = total_debt / 1e8
         repay_usd = debt_usd * fraction
+        # SECURITY: clamp to a hard USD ceiling so a bad reading / units bug
+        # can never produce a runaway repay amount.
+        cap = getattr(self.cfg, "max_rebalance_usd", 0) or 0
+        if cap > 0 and repay_usd > cap:
+            print(f"  🛡️  Repay {repay_usd:.2f} USD exceeds cap {cap:.2f} — clamping.")
+            repay_usd = cap
         repay_token_units = int(repay_usd * (10 ** decimals))
 
         return RebalanceDecision(
@@ -242,11 +248,12 @@ class Rebalancer:
         try:
             if decision.action == "repay":
                 # Approve the debt token for the Aave Pool so repay() can pull funds.
-                # (idempotent — safe to call every time)
+                # SECURITY: approve the EXACT repay amount, never an unlimited
+                # (MAX uint256) allowance — a lingering infinite allowance is a
+                # standing drain risk if the Pool or a delegate is ever compromised.
                 try:
                     self.client.approve(
-                        decision.asset, config.AAVE_POOL,
-                        "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+                        decision.asset, config.AAVE_POOL, decision.amount,
                     )
                 except MCPError as e:
                     print(f"  ⚠️  Pre-repay approve skipped: {e}")

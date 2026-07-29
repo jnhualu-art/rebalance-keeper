@@ -42,6 +42,7 @@ from src.rebalancer import Rebalancer
 from src.arc_client import ArcClient, ArcError
 from src.arc_executor import ArcExecutor, ArcExecutorError
 from src.arc_rebalancer import ArcRebalancer
+from src.arc_wallet_backends import get_backend
 from src import arc_position
 
 
@@ -220,7 +221,7 @@ def cmd_arc_rebalance(args):
     """
     from src import config as C
 
-    rebalancer = ArcRebalancer()
+    rebalancer = ArcRebalancer(backend=get_backend(args.backend))
     dry_run = args.dry_run
 
     try:
@@ -252,14 +253,21 @@ def cmd_arc_rebalance(args):
     _print_rebalance_result(res, dry_run)
 
 
-def _run_watch(rebalancer, dry_run: bool, interval: int):
-    """Loop: evaluate the treasury and autonomously rebalance every interval."""
+def _run_watch(rebalancer, dry_run: bool, interval: int, max_errors: int = 5):
+    """Loop: evaluate the treasury and autonomously rebalance every interval.
+
+    Hardened for unattended operation (Checkpoint 3):
+      - a single failed cycle never kills the loop (counted + exponential backoff)
+      - stops only after `max_errors` consecutive failures
+      - backoff is capped so a healthy loop stays responsive
+    """
     from src import config as C
 
     interval = interval or C.ARC_REBALANCE_CONFIG.monitor_interval
     print(f"\n⮕ Watching treasury every {interval}s (Ctrl-C to stop) ...")
-    try:
-        while True:
+    errors = 0
+    while True:
+        try:
             res = rebalancer.run_once(dry_run=dry_run)
             if res.get("error"):
                 print(f"  ✗ {res['error']}")
@@ -269,9 +277,17 @@ def _run_watch(rebalancer, dry_run: bool, interval: int):
                     print(f"  ✓ {decision.zone}: {decision.reason}")
                 else:
                     _print_rebalance_result(res.get("action") or {}, dry_run)
-            time.sleep(interval)
-    except KeyboardInterrupt:
-        print("\n⏹ Stopped watching.")
+            errors = 0
+        except Exception as e:  # noqa: BLE001 — keep the loop alive on transient failures
+            errors += 1
+            print(f"  ⚠ watch error ({errors}/{max_errors}): {e}")
+            if errors >= max_errors:
+                print("  ⏹ too many consecutive errors — stopping watch.")
+                break
+        # Back off on errors (capped), otherwise poll at the normal interval.
+        sleep_t = min(interval * (2 ** min(errors, 4)), 300)
+        time.sleep(sleep_t)
+    print("\n⏹ Stopped watching.")
 
 
 def _print_rebalance_result(res: dict, dry_run: bool):
@@ -363,6 +379,11 @@ def main():
     arc_reb_p.add_argument(
         "--interval", type=int, default=None,
         help="Watch-loop interval in seconds (default: config.monitor_interval)",
+    )
+    arc_reb_p.add_argument(
+        "--backend", default="local", choices=["local", "circle"],
+        help="Wallet custody backend: 'local' (eth_account, default) or "
+             "'circle' (Circle Agent Stack on ARC-TESTNET)",
     )
 
     setup_p = sub.add_parser("setup", help="Set up a test position")

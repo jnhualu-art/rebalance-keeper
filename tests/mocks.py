@@ -58,6 +58,10 @@ class MockKeeperHubClient:
         self.calls.append(("get_user_reserve_data", user, asset))
         return dict(self.reserve_data)
 
+    def approve(self, token: str, spender: str, amount: str, **kwargs) -> Dict:
+        self.calls.append(("approve", token, spender, amount))
+        return {"success": True, "transactionHash": "0xapprove123"}
+
     def supply(self, asset: str, amount: str, **kwargs) -> Dict:
         self.calls.append(("supply", asset, amount))
         return dict(self.supply_result)

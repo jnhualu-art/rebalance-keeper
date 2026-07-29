@@ -72,11 +72,12 @@ class TestRebalancerCritical(unittest.TestCase):
 
     def test_critical_repay_50_percent(self):
         """CRITICAL zone should repay 50% of debt."""
-        # debt = 10 USDC = 10 * 10^6 = 10000000 base units
+        # Aave totalDebtBase is USD @ 1e8 precision → $10 debt = 10 * 1e8.
+        # Repay amount is emitted in the debt token's own units (USDC @ 1e6).
         snap = make_snap(
             hf=1.05,
-            debt="10000000",
-            collateral="11000000",
+            debt="1000000000",       # $10 debt
+            collateral="1100000000",
             level=AlertLevel.CRITICAL,
         )
         decision = self.rebalancer.evaluate(snap)
@@ -84,9 +85,9 @@ class TestRebalancerCritical(unittest.TestCase):
         self.assertEqual(decision.priority, 100)
         self.assertEqual(decision.alert_level, "CRITICAL")
 
-        # 50% of 10 USDC = 5 USDC
+        # 50% of $10 = $5 → 5 USDC = 5_000_000 base units (1e6)
         amount = float(decision.amount)
-        self.assertAlmostEqual(amount, 5.0, places=4)
+        self.assertAlmostEqual(amount, 5_000_000, delta=1)
 
     def test_critical_executes_repay(self):
         """CRITICAL should execute repay via client."""
@@ -117,8 +118,8 @@ class TestRebalancerDanger(unittest.TestCase):
         """DANGER zone should repay 25% of debt."""
         snap = make_snap(
             hf=1.35,
-            debt="10000000",
-            collateral="15000000",
+            debt="1000000000",       # $10 debt (USD @ 1e8)
+            collateral="1500000000",
             level=AlertLevel.DANGER,
         )
         decision = self.rebalancer.evaluate(snap)
@@ -126,9 +127,9 @@ class TestRebalancerDanger(unittest.TestCase):
         self.assertEqual(decision.priority, 50)
         self.assertEqual(decision.alert_level, "DANGER")
 
-        # 25% of 10 USDC = 2.5 USDC
+        # 25% of $10 = $2.5 → 2.5 USDC = 2_500_000 base units (1e6)
         amount = float(decision.amount)
-        self.assertAlmostEqual(amount, 2.5, places=4)
+        self.assertAlmostEqual(amount, 2_500_000, delta=1)
 
 
 class TestRebalancerWarning(unittest.TestCase):
@@ -143,8 +144,8 @@ class TestRebalancerWarning(unittest.TestCase):
         """WARNING with declining trend should repay 10%."""
         snap = make_snap(
             hf=1.7,
-            debt="10000000",
-            collateral="20000000",
+            debt="1000000000",       # $10 debt (USD @ 1e8)
+            collateral="2000000000",
             level=AlertLevel.WARNING,
             declines=4,  # trend_window=5, so 4 declines triggers pre-emptive
         )
@@ -152,9 +153,9 @@ class TestRebalancerWarning(unittest.TestCase):
         self.assertEqual(decision.action, "repay")
         self.assertEqual(decision.priority, 20)
 
-        # 10% of 10 USDC = 1 USDC
+        # 10% of $10 = $1 → 1 USDC = 1_000_000 base units (1e6)
         amount = float(decision.amount)
-        self.assertAlmostEqual(amount, 1.0, places=4)
+        self.assertAlmostEqual(amount, 1_000_000, delta=1)
 
     def test_warning_stable_supply_buffer(self):
         """WARNING without decline should supply collateral."""
@@ -168,7 +169,9 @@ class TestRebalancerWarning(unittest.TestCase):
         decision = self.rebalancer.evaluate(snap)
         self.assertEqual(decision.action, "supply")
         self.assertEqual(decision.priority, 10)
-        self.assertEqual(decision.amount, config.REBALANCE_CONFIG.supply_boost_amount)
+        # supply amount is emitted in wei (WETH @ 1e18)
+        expected_wei = str(int(float(config.REBALANCE_CONFIG.supply_boost_amount) * 1e18))
+        self.assertEqual(decision.amount, expected_wei)
 
 
 class TestHFImpactEstimation(unittest.TestCase):
