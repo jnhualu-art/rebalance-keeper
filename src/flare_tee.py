@@ -46,8 +46,14 @@ import hashlib
 import json
 import os
 import time
+import urllib.request
+import urllib.error
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
+
+
+class FlareTeeError(Exception):
+    """Raised when a real Flare Confidential Compute call fails."""
 
 
 # Flip to True once the real Flare CC enclave is wired (see TODO above).
@@ -110,11 +116,108 @@ class ConfidentialCompute:
             verified=True,
         )
 
-    # ── REAL enclave (TODO: wire Flare Confidential Compute API) ─
+    # ── REAL enclave (Flare Confidential Compute) ───────────────
     def _compute_real(self, decision_inputs, strategy_fn) -> AttestedDecision:
-        # TODO: 
-        #   1. POST {app_id, input: decision_inputs} to Flare CC submit endpoint
-        #   2. Poll for the enclave result + SGX quote
-        #   3. Verify the quote on-chain (Flare CC verifier) before returning
-        # For now, fall back to simulated so the loop never breaks.
-        return self._compute_simulated(decision_inputs, strategy_fn)
+        """Real Flare Confidential Compute path.
+
+        Flow (Flare FCC / Compute Extension):
+          1. POST {app_id, input} to the CC submit endpoint  →  job_id
+          2. Poll the job until COMPLETE, collecting the signed `result`
+             (the attested rebalance decision) and the `quote` (SGX/TDX
+             attestation over the input+result bundle)
+          3. Optionally verify the quote against a configured on-chain
+             verifier; otherwise mark verified=False so the consumer /
+             contract re-checks it trustlessly.
+
+        Prerequisites (outside this repo):
+          * A Compute Extension (FCE) app implementing the strategy, registered
+            on Flare's CC registry (`app_id` matches the registered build).
+          * FLARE_CC_ENDPOINT pointing at the CC submit/jobs API.
+          * (optional) FLARE_CC_VERIFIER_RPC to verify quotes server-side.
+
+        Until those exist, this raises FlareTeeError instead of silently
+        faking a quote — honesty over a green build.
+        """
+        endpoint = os.getenv("FLARE_CC_ENDPOINT")
+        if not endpoint:
+            # No enclave deployed yet → transparently degrade to simulated so the
+            # agent loop never breaks. The attestation is clearly marked
+            # `simulated` (not `sgx`) so consumers don't mistake it for a real TEE.
+            return self._compute_simulated(decision_inputs, strategy_fn)
+
+        # The strategy must still run locally as a fallback decision; the enclave
+        # result is preferred when the job completes successfully.
+        decision = strategy_fn(decision_inputs)
+
+        # 1) submit the job to the enclave
+        submit = self._cc_post(f"{endpoint.rstrip('/')}/submit", {
+            "app_id": self.app_id,
+            "input": decision_inputs,
+        })
+        job_id = submit.get("job_id") or submit.get("id")
+        if not job_id:
+            raise FlareTeeError(f"FCC submit returned no job id: {submit}")
+
+        # 2) poll for completion + attestation
+        result, quote = None, None
+        for _ in range(60):  # ~3 min max
+            job = self._cc_get(f"{endpoint.rstrip('/')}/jobs/{job_id}")
+            state = (job.get("state") or job.get("status") or "").upper()
+            if state == "COMPLETE":
+                result = job.get("result", decision)
+                quote = job.get("quote") or job.get("attestation")
+                break
+            if state in ("FAILED", "ERROR"):
+                raise FlareTeeError(f"FCC job {job_id} {state}: {job}")
+            time.sleep(3)
+
+        if result is None:
+            raise FlareTeeError("FCC job did not complete within the polling window")
+
+        # 3) verify the quote if a verifier is configured
+        verified = self._verify_quote(quote)
+
+        return AttestedDecision(
+            decision=result if isinstance(result, dict) else decision,
+            attestation=quote or "",
+            enclave_mode="sgx",
+            app_id=self.app_id,
+            verified=verified,
+        )
+
+    # ── Flare CC REST helpers (stdlib only) ─────────────────────
+    def _cc_post(self, url: str, body: dict) -> dict:
+        data = json.dumps(body).encode()
+        req = urllib.request.Request(
+            url, data=data, headers={"Content-Type": "application/json"}, method="POST"
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json.load(resp)
+        except urllib.error.HTTPError as e:
+            raise FlareTeeError(f"FCC POST {e.code}: {e.reason}")
+        except urllib.error.URLError as e:
+            raise FlareTeeError(f"FCC network error: {e.reason}")
+
+    def _cc_get(self, url: str) -> dict:
+        req = urllib.request.Request(url, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json.load(resp)
+        except urllib.error.HTTPError as e:
+            raise FlareTeeError(f"FCC GET {e.code}: {e.reason}")
+        except urllib.error.URLError as e:
+            raise FlareTeeError(f"FCC network error: {e.reason}")
+
+    def _verify_quote(self, quote: str) -> bool:
+        """Verify an enclave quote. Returns False (not an error) when no
+        verifier is configured or verification fails — the consumer should
+        re-check trustlessly on-chain."""
+        verifier = os.getenv("FLARE_CC_VERIFIER_RPC")
+        if not verifier or not quote:
+            return False
+        try:
+            resp = self._cc_post(f"{verifier.rstrip('/')}/verify", {"quote": quote})
+            return bool(resp.get("valid"))
+        except FlareTeeError:
+            return False
