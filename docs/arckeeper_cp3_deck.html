@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ArcKeeper — Encode Programmable Money Hackathon · CP3 Deck</title>
+<style>
+  :root{
+    --bg0:#070b1a; --bg1:#0d1430; --cyan:#2dd4ff; --cyan2:#38bdf8;
+    --purple:#7c5cff; --green:#22d3a0; --text:#e6edf6; --muted:#8a98b5;
+    --line:rgba(45,212,255,.18); --card:rgba(255,255,255,.04);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{
+    font-family:"Segoe UI",system-ui,-apple-system,"Microsoft YaHei",sans-serif;
+    background:radial-gradient(1200px 700px at 70% -10%,#13204a 0%,var(--bg1) 45%,var(--bg0) 100%);
+    color:var(--text); overflow:hidden; user-select:none;
+  }
+  .mono{font-family:"SF Mono",Consolas,"Roboto Mono",monospace;}
+  .deck{position:relative; width:100vw; height:100vh;}
+  .slide{
+    position:absolute; inset:0; display:none; flex-direction:column;
+    align-items:center; justify-content:center; padding:5vh 7vw; text-align:center;
+  }
+  .slide.active{display:flex; animation:fade .45s ease;}
+  @keyframes fade{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:none;}}
+  .tag{
+    display:inline-block; font-size:12px; letter-spacing:.18em; text-transform:uppercase;
+    color:var(--cyan); border:1px solid var(--line); border-radius:999px;
+    padding:5px 14px; margin-bottom:18px; background:rgba(45,212,255,.06);
+  }
+  h1{font-size:clamp(30px,5.4vw,60px); line-height:1.05; font-weight:800;
+     background:linear-gradient(90deg,#fff,var(--cyan)); -webkit-background-clip:text;
+     background-clip:text; color:transparent; margin-bottom:12px;}
+  h2{font-size:clamp(22px,3.6vw,38px); font-weight:800; margin-bottom:14px; color:#fff;}
+  .sub{font-size:clamp(14px,1.8vw,18px); color:var(--muted); max-width:780px; line-height:1.55;}
+  .grid{display:grid; gap:14px; width:100%; max-width:920px; margin-top:14px;}
+  .grid.c2{grid-template-columns:1fr 1fr;}
+  .grid.c3{grid-template-columns:repeat(3,1fr);}
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:18px 18px; text-align:left;
+  }
+  .card h3{font-size:18px; color:var(--cyan); margin-bottom:8px;}
+  .card p{font-size:14px; color:var(--muted); line-height:1.5;}
+  .card .v{color:var(--text); font-weight:600;}
+  ul.checks{list-style:none; text-align:left; max-width:780px; margin-top:14px;}
+  ul.checks li{font-size:15px; color:var(--text); padding:6px 0; padding-left:24px; position:relative; line-height:1.5;}
+  ul.checks li::before{content:"✓"; position:absolute; left:0; top:6px; color:var(--green); font-weight:700;}
+  .code{background:var(--card); border:1px solid var(--line); border-radius:12px;
+        padding:16px 18px; color:var(--muted); font-size:13px; text-align:left;
+        max-width:780px; margin-top:16px; line-height:1.65; overflow:auto; white-space:pre;}
+  .txrow{background:var(--card); border:1px solid var(--line); border-radius:12px;
+         padding:12px 16px; max-width:780px; margin-top:12px; text-align:left; font-size:13px;}
+  .txrow b{color:var(--text);}
+  .txrow a{color:var(--cyan); text-decoration:none;}
+  .txrow a:hover{text-decoration:underline;}
+  .footer{position:fixed; bottom:14px; left:0; right:0; text-align:center; font-size:12px; color:var(--muted);}
+  .nav{position:fixed; right:18px; top:50%; transform:translateY(-50%);
+       display:flex; flex-direction:column; gap:8px; z-index:9;}
+  .nav button{width:30px; height:30px; border-radius:50%; border:1px solid var(--line);
+       background:rgba(255,255,255,.04); color:var(--text); font-size:14px; cursor:pointer;}
+  .nav button:hover{background:rgba(45,212,255,.12); border-color:var(--cyan);}
+  .pager{position:fixed; bottom:14px; right:18px; font-size:13px; color:var(--muted); z-index:9;}
+</style>
+</head>
+<body>
+<div class="deck">
+
+  <!-- Slide 1: Title -->
+  <section class="slide active">
+    <span class="tag">Encode · Programmable Money Hackathon</span>
+    <h1>ArcKeeper</h1>
+    <h2 style="font-size:clamp(18px,2.6vw,26px);color:var(--muted);font-weight:600;">
+      Autonomous USDC treasury agent on Arc — now looping &amp; Circle-custodied
+    </h2>
+    <p class="sub" style="margin-top:14px;">
+      Checkpoint 3 · Agentic Economy track · Circle's stablecoin-native L1 (chainId 5042002)
+    </p>
+    <div class="grid c3" style="margin-top:22px;">
+      <div class="card"><h3>🔁 Loops</h3><p>Threshold-driven watch loop — rebalances with <span class="v">no human in the loop</span>.</p></div>
+      <div class="card"><h3>🏦 Circle</h3><p>Optional <span class="v">Circle Agent Stack</span> custody with server-side spending policy.</p></div>
+      <div class="card"><h3>🛡️ Safe</h3><p><span class="v">$10k</span> per-action cap + auto-stop on error storms. 64 tests green.</p></div>
+    </div>
+  </section>
+
+  <!-- Slide 2: CP3 what shipped -->
+  <section class="slide">
+    <span class="tag">Checkpoint 3 · What shipped</span>
+    <h2>From manual demo → autonomous agent</h2>
+    <div class="grid c2" style="margin-top:18px;">
+      <div class="card">
+        <h3 style="color:var(--muted);">CP2 · manual</h3>
+        <ul class="checks" style="margin-top:6px;">
+          <li>One-shot <span class="mono">--sweep / --topup</span></li>
+          <li>Local private key signs &amp; broadcasts</li>
+          <li>Human triggers every move</li>
+          <li>Proof: 2 real on-chain txs</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3 style="color:var(--green);">CP3 · autonomous</h3>
+        <ul class="checks" style="margin-top:6px;">
+          <li><span class="v">Watch loop</span> — monitors &amp; acts on its own</li>
+          <li><span class="v">Circle Agent Stack</span> custody option</li>
+          <li>Threshold band decides top-up vs sweep</li>
+          <li>Safety rails + 64-test suite</li>
+        </ul>
+      </div>
+    </div>
+    <p class="sub mono" style="margin-top:18px;">Same agent, same USDC treasury — now it runs itself.</p>
+  </section>
+
+  <!-- Slide 3: Autonomous loop -->
+  <section class="slide">
+    <span class="tag">How · Autonomous Loop</span>
+    <h2><span class="mono" style="color:var(--cyan);">arc-rebalance --watch</span></h2>
+    <p class="sub">Every <span class="mono">--interval</span> seconds the agent: reads the on-chain USDC balance → decides against a threshold band → acts. No human in the loop.</p>
+    <div class="grid c3" style="margin-top:18px;">
+      <div class="card"><h3>📊 Read</h3><p><span class="v">Arc RPC</span> → USDC.balanceOf(agent) every tick.</p></div>
+      <div class="card"><h3>🧠 Decide</h3><p>Band <span class="mono">[floor, ceiling]</span> → SAFE / WARNING / DANGER.</p></div>
+      <div class="card"><h3>✍️ Act</h3><p>Below floor → <span class="v">top-up</span>; above ceiling → <span class="v">sweep</span>.</p></div>
+    </div>
+    <div class="code">python -m src.main arc-rebalance --watch --interval 30 --backend circle
+# tick 1  balance 42.1  → SAFE      (within [40, 60])
+# tick 2  balance 63.4  → SWEEP 3.4 → reserve   (above ceiling)
+# tick 3  balance 36.2  → TOPUP 3.8 → operational (below floor)</div>
+  </section>
+
+  <!-- Slide 4: Circle Agent Stack -->
+  <section class="slide">
+    <span class="tag">Custody · Circle Agent Stack</span>
+    <h2>Pluggable <span class="mono" style="color:var(--cyan);">WalletBackend</span></h2>
+    <p class="sub">One env var <span class="mono">ARC_WALLET_BACKEND=circle</span> swaps the local key for a Circle developer-controlled wallet on ARC-TESTNET. Same rebalancer code — different custody.</p>
+    <div class="grid c2" style="margin-top:18px;">
+      <div class="card">
+        <h3>🔑 LocalKeyBackend</h3>
+        <p>Signs with <span class="mono">eth_account</span>, broadcasts via Arc RPC. Zero external deps (default).</p>
+      </div>
+      <div class="card">
+        <h3>🏦 CircleWalletBackend</h3>
+        <p>USDC held in Circle custody. Transfers authorised through Circle's API, which enforces the wallet's <span class="v">spending policy</span> server-side — daily caps, allow/block lists.</p>
+      </div>
+    </div>
+    <p class="sub mono" style="margin-top:16px;color:var(--muted);">stdlib urllib → Circle REST (developer/transactions/transfer on ARC-TESTNET). No third-party SDK.</p>
+  </section>
+
+  <!-- Slide 5: Safety rails -->
+  <section class="slide">
+    <span class="tag">Safety rails</span>
+    <h2>Built to not blow up</h2>
+    <div class="grid c2" style="margin-top:18px;">
+      <div class="card">
+        <h3>🛡️ Per-action guards</h3>
+        <ul class="checks" style="margin-top:6px;">
+          <li><span class="v">max_rebalance_usd</span> cap ($10k default) on every move</li>
+          <li>Chain-id binding — Arc only</li>
+          <li>EIP-55 checksum + monotonic nonces</li>
+          <li>Idempotent retry on transient failures</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>🔁 Loop guards</h3>
+        <ul class="checks" style="margin-top:6px;">
+          <li>Auto-stop after N consecutive errors</li>
+          <li>Exponential back-off between ticks</li>
+          <li>Dry-run by default; <span class="mono">--execute</span> to broadcast</li>
+          <li><span class="v">64 unit tests</span> green (CP3 suite)</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Slide 6: Demo -->
+  <section class="slide">
+    <span class="tag">Demo</span>
+    <h2>See it run</h2>
+    <ul class="checks" style="margin-top:8px;">
+      <li>Live HTML demo (record your screen): watch loop ticks, threshold decisions, Circle transfer logs stream in</li>
+      <li>30-second overview video (linked in submission)</li>
+      <li>CLI trio: <span class="mono">arc-status</span> · <span class="mono">arc-rebalance --watch</span> · <span class="mono">--dry-run</span></li>
+    </ul>
+    <div class="code">python -m src.main arc-status                 # live treasury report
+python -m src.main arc-rebalance --watch      # autonomous loop
+python -m src.main arc-rebalance --dry-run    # build tx, don't broadcast
+python -m src.main arc-rebalance --backend circle --watch  # Circle custody</div>
+  </section>
+
+  <!-- Slide 7: Proof + roadmap + links -->
+  <section class="slide">
+    <span class="tag">Proof · Roadmap · Links</span>
+    <h2>Shipped &amp; next</h2>
+    <div class="txrow">
+      <b>Sweep · operational → reserve · 5 USDC</b> (CP2 live proof)<br>
+      <span class="mono">0xe24a56a208913fee980d339029b733309c0ddcd86de3ce4be3a9ae486a4b8664</span>
+      → <a href="https://testnet.arcscan.app/tx/0xe24a56a208913fee980d339029b733309c0ddcd86de3ce4be3a9ae486a4b8664" target="_blank">arcscan</a>
+    </div>
+    <div class="txrow">
+      <b>Top-up · reserve → operational · 5 USDC</b> (CP2 live proof)<br>
+      <span class="mono">0xeae89dc2c4fd37ce4c1b812776755d3f8d48d7d89abdd523d935d888b75740b3</span>
+      → <a href="https://testnet.arcscan.app/tx/0xeae89dc2c4fd37ce4c1b812776755d3f8d48d7d89abdd523d935d888b75740b3" target="_blank">arcscan</a>
+    </div>
+    <div class="grid c2" style="margin-top:14px;">
+      <div class="card"><h3>🛣️ Next</h3><p>Deploy executor to Aave/Compound on Arc · real Circle sandbox account · multi-asset treasury.</p></div>
+      <div class="card"><h3>🔗 Repo</h3><p class="mono" style="font-size:12px;">github.com/jnhualu-art/rebalance-keeper/tree/arc-migration</p><p style="font-size:12px;margin-top:6px;">Discord: lu-lu-jh</p></div>
+    </div>
+  </section>
+
+</div>
+
+<div class="pager"><b id="cur">1</b> / <span id="total">7</span></div>
+<div class="nav">
+  <button id="prev" title="Previous">‹</button>
+  <button id="next" title="Next">›</button>
+</div>
+<div class="footer">ArcKeeper · Encode CP3 · Agentic Economy · Click or use → arrow keys</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  document.getElementById('total').textContent = total;
+  let idx = 0;
+  function show(i){
+    if(i<0) i=0; if(i>=total) i=total-1;
+    slides.forEach(s=>s.classList.remove('active'));
+    slides[i].classList.add('active');
+    document.getElementById('cur').textContent = i+1;
+    idx = i;
+  }
+  document.getElementById('next').onclick = ()=>show(idx+1);
+  document.getElementById('prev').onclick = ()=>show(idx-1);
+  document.addEventListener('keydown', e=>{
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown') show(idx+1);
+    else if(e.key==='ArrowLeft'||e.key==='PageUp') show(idx-1);
+  });
+  document.querySelectorAll('.slide').forEach(s=>s.addEventListener('click', e=>{
+    if(e.target.tagName==='A'||e.target.tagName==='BUTTON') return;
+    show(idx+1);
+  }));
+</script>
+</body>
+</html>
