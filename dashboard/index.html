@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RebalanceKeeper — Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0d1117; color: #c9d1d9; min-height: 100vh; padding: 24px;
+  }
+  .header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+  .header h1 { font-size: 24px; color: #58a6ff; }
+  .header .badge {
+    background: #238636; color: #fff; padding: 4px 12px; border-radius: 12px;
+    font-size: 12px; font-weight: 600;
+  }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 1200px; }
+  .card {
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+    padding: 20px;
+  }
+  .card h2 { font-size: 14px; color: #8b949e; margin-bottom: 12px; text-transform: uppercase; }
+  .hf-value {
+    font-size: 48px; font-weight: 700; color: #3fb950;
+  }
+  .hf-value.unsafe { color: #f85149; }
+  .hf-label { font-size: 12px; color: #8b949e; margin-top: 4px; }
+  .stat-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #21262d; }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-label { color: #8b949e; font-size: 13px; }
+  .stat-value { color: #c9d1d9; font-size: 13px; font-weight: 500; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: #8b949e; padding: 8px; border-bottom: 1px solid #30363d; }
+  td { padding: 8px; border-bottom: 1px solid #21262d; }
+  .tx-link { color: #58a6ff; text-decoration: none; }
+  .tx-link:hover { text-decoration: underline; }
+  .status-success { color: #3fb950; }
+  .status-failed { color: #f85149; }
+  .chart-container { height: 200px; position: relative; }
+  .wallet { font-family: monospace; font-size: 12px; color: #8b949e; }
+  #refresh-btn {
+    background: #21262d; border: 1px solid #30363d; color: #c9d1d9;
+    padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  #refresh-btn:hover { background: #30363d; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>RebalanceKeeper</h1>
+  <span class="badge">Sepolia Testnet</span>
+  <span class="wallet">Wallet: 0x1573...C531</span>
+  <button id="refresh-btn" onclick="loadData()">Refresh</button>
+</div>
+
+<div class="grid">
+  <!-- Health Factor -->
+  <div class="card">
+    <h2>Health Factor</h2>
+    <div class="hf-value" id="hf-value">—</div>
+    <div class="hf-label" id="hf-label">Threshold: 1.50</div>
+    <div class="chart-container" style="margin-top: 16px;">
+      <canvas id="hf-chart"></canvas>
+    </div>
+  </div>
+
+  <!-- Position Summary -->
+  <div class="card">
+    <h2>Position</h2>
+    <div class="stat-row">
+      <span class="stat-label">Total Collateral (base)</span>
+      <span class="stat-value" id="collateral">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Total Debt (base)</span>
+      <span class="stat-value" id="debt">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Available Borrows (base)</span>
+      <span class="stat-value" id="borrows">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">LTV</span>
+      <span class="stat-value" id="ltv">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Liquidation Threshold</span>
+      <span class="stat-value" id="lt">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Pool Address</span>
+      <span class="stat-value" style="font-family:monospace;font-size:11px;">
+        0x6Ae4...8951
+      </span>
+    </div>
+  </div>
+
+  <!-- Rebalance History -->
+  <div class="card" style="grid-column: 1 / -1;">
+    <h2>Rebalance Audit Trail</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th>Trigger</th>
+          <th>Action</th>
+          <th>TX Hash</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="audit-body">
+        <tr><td colspan="5" style="text-align:center;color:#8b949e;">No triggers yet</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const THRESHOLD = 1.5;
+
+// Demo data — loads REAL on-chain demo first (logs/real_demo_dashboard.json),
+// then synthetic demo (logs/demo_history.json), then inline fallback.
+// In production, replace with fetch('/api/status')
+let sampleData = null;
+
+async function loadData() {
+  // Try real on-chain demo, then synthetic, then inline sample
+  try {
+    const resp = await fetch('../logs/real_demo_dashboard.json');
+    if (resp.ok) {
+      sampleData = await resp.json();
+      return;
+    }
+  } catch (e) { /* fall through */ }
+  try {
+    const resp = await fetch('../logs/demo_history.json');
+    if (resp.ok) {
+      sampleData = await resp.json();
+    } else {
+      sampleData = getInlineData();
+    }
+  } catch (e) {
+    sampleData = getInlineData();
+  }
+
+  const d = sampleData;
+
+  // Health Factor
+  const hfEl = document.getElementById('hf-value');
+  hfEl.textContent = d.healthFactor.toFixed(4);
+  hfEl.className = 'hf-value' + (d.healthFactor < THRESHOLD ? ' unsafe' : '');
+
+  // Position
+  document.getElementById('collateral').textContent = d.totalCollateralBase;
+  document.getElementById('debt').textContent = d.totalDebtBase;
+  document.getElementById('borrows').textContent = d.availableBorrowsBase;
+  document.getElementById('ltv').textContent = (parseInt(d.ltv)/100).toFixed(2) + '%';
+  document.getElementById('lt').textContent = (parseInt(d.liquidationThreshold)/100).toFixed(2) + '%';
+
+  // Chart
+  const ctx = document.getElementById('hf-chart').getContext('2d');
+  if (hfChart) hfChart.destroy();
+  hfChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: d.history.map(h => h.t),
+      datasets: [{
+        label: 'Health Factor',
+        data: d.history.map(h => h.hf),
+        borderColor: '#58a6ff',
+        backgroundColor: 'rgba(88,166,255,0.1)',
+        fill: true,
+        tension: 0.3,
+      }, {
+        label: 'Threshold',
+        data: d.history.map(() => THRESHOLD),
+        borderColor: '#f85149',
+        borderDash: [5, 5],
+        fill: false,
+        pointRadius: 0,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: false, min: 1.0, max: 2.5, grid: { color: '#21262d' } },
+        x: { grid: { color: '#21262d' } },
+      },
+    }
+  });
+
+  // Audit trail
+  const body = document.getElementById('audit-body');
+  if (d.triggers.length === 0) {
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#8b949e;">No triggers yet</td></tr>';
+  } else {
+    body.innerHTML = d.triggers.map(t => `
+      <tr>
+        <td>${t.timestamp}</td>
+        <td>${t.trigger}</td>
+        <td>${t.action}</td>
+        <td><a class="tx-link" href="https://sepolia.etherscan.io/tx/${t.txHash}" target="_blank">${t.txHash.substring(0,18)}...</a></td>
+        <td class="status-${t.status}">${t.status}</td>
+      </tr>
+    `).join('');
+  }
+}
+
+let hfChart = null;
+
+function getInlineData() {
+  return {
+    healthFactor: 2.2667,
+    totalCollateralBase: "8500",
+    totalDebtBase: "3000",
+    availableBorrowsBase: "2950",
+    ltv: "3529",
+    liquidationThreshold: "8000",
+    history: [
+      { t: "09:00", hf: 2.56 }, { t: "09:02", hf: 2.556 },
+      { t: "09:04", hf: 2.568 }, { t: "09:06", hf: 2.558 },
+      { t: "09:08", hf: 2.564 }, { t: "09:10", hf: 2.48 },
+      { t: "09:12", hf: 2.32 }, { t: "09:14", hf: 2.16 },
+      { t: "09:16", hf: 2.0 }, { t: "09:18", hf: 1.84 },
+      { t: "09:20", hf: 1.867 }, { t: "09:22", hf: 1.689 },
+      { t: "09:24", hf: 1.75 }, { t: "09:26", hf: 1.6 },
+      { t: "09:28", hf: 1.45 }, { t: "09:30", hf: 2.0 },
+      { t: "09:32", hf: 2.067 }, { t: "09:34", hf: 2.133 },
+      { t: "09:36", hf: 2.2 }, { t: "09:38", hf: 2.267 },
+    ],
+    triggers: [
+      { timestamp: "2026-07-17T09:00:00Z", trigger: "position_setup", action: "supply 0.05 WETH + borrow 50 USDC", txHash: "0xa1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef1234", status: "success" },
+      { timestamp: "2026-07-17T09:18:00Z", trigger: "health_factor=1.84 (WARNING, 5 declines)", action: "repay 5.00 USDC (10%)", txHash: "0xc3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678", status: "success" },
+      { timestamp: "2026-07-17T09:28:00Z", trigger: "health_factor=1.45 (DANGER)", action: "repay 10.00 USDC (25%)", txHash: "0xd4e5f6789012345678901234567890abcdef1234567890abcdef12345678901", status: "success" },
+    ],
+  };
+}
+
+loadData();
+// Auto-refresh every 30s
+setInterval(loadData, 30000);
+</script>
+</body>
+</html>

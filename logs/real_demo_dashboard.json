@@ -1,0 +1,58 @@
+{
+  "healthFactor": 1.6923,
+  "totalCollateralBase": "20000000000",
+  "totalDebtBase": "9750065700",
+  "availableBorrowsBase": "6750000000",
+  "ltv": "8250",
+  "liquidationThreshold": "8300",
+  "history": [
+    {
+      "t": "06:45",
+      "hf": 2.0
+    },
+    {
+      "t": "06:46",
+      "hf": 1.65
+    },
+    {
+      "t": "06:47",
+      "hf": 1.2692
+    },
+    {
+      "t": "06:49",
+      "hf": 1.6923
+    }
+  ],
+  "triggers": [
+    {
+      "timestamp": "2026-07-19T06:45:00Z",
+      "trigger": "position_setup",
+      "action": "supply 0.05 WETH + set collateral",
+      "txHash": "0x807937e3b31f1cf05507d9a01a37ccb06d94054588376efefff8a662c0fbb28c",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-07-19T06:45:30Z",
+      "trigger": "borrow",
+      "action": "borrow 100 USDC (HF \u2192 1.65 WARNING)",
+      "txHash": "0x012e58fe1840a92b0d9325d9f78b573f0062960bb1ab50bd9a3ac12075b9860d",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-07-19T06:46:10Z",
+      "trigger": "stress_test",
+      "action": "borrow +30 USDC (HF \u2192 1.2692 DANGER)",
+      "txHash": "0xd9b5b3571a3e92c7f2fe8d2130857ccab2bc59affa7c1c014801e0d70b2416e2",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-07-19T06:49:04Z",
+      "trigger": "health_factor=1.2692 (DANGER)",
+      "action": "repay 32.5 USDC (25% of debt) \u2192 HF 1.6923",
+      "txHash": "0x22aec5f3856dc29579069fcf4b3f7cf89a379d0c9676ee3976f7bfab16c6c857",
+      "status": "success"
+    }
+  ],
+  "wallet": "0x1573C3d151200922375bC48012BB1f232B2cF531",
+  "chain": "Ethereum Sepolia"
+}
