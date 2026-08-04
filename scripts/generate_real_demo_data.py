@@ -218,16 +218,16 @@ dashboard_snapshot = {
 }
 
 # ── Write files ──
-with open(os.path.join(LOGS, "real_demo_history.json"), "w") as f:
+with open(os.path.join(LOGS, "real_demo_history.json"), "w", encoding="utf-8") as f:
     json.dump(history, f, indent=2)
-with open(os.path.join(LOGS, "real_demo_dashboard.json"), "w") as f:
+with open(os.path.join(LOGS, "real_demo_dashboard.json"), "w", encoding="utf-8") as f:
     json.dump(dashboard_snapshot, f, indent=2)
-with open(os.path.join(LOGS, "real_demo_audit.jsonl"), "w") as f:
+with open(os.path.join(LOGS, "real_demo_audit.jsonl"), "w", encoding="utf-8") as f:
     for ev in audit_events:
         f.write(json.dumps(ev) + "\n")
-with open(os.path.join(LOGS, "real_demo_session.txt"), "w") as f:
+with open(os.path.join(LOGS, "real_demo_session.txt"), "w", encoding="utf-8") as f:
     f.write(session_text)
-with open(os.path.join(LOGS, "real_demo_summary.json"), "w") as f:
+with open(os.path.join(LOGS, "real_demo_summary.json"), "w", encoding="utf-8") as f:
     json.dump(summary, f, indent=2)
 
 print("✓ Real demo data generated:")
