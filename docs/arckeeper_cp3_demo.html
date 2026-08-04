@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ArcKeeper — Autonomous USDC Rebalancing Agent · Live Demo</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; background: #0d1117; color: #e6edf3;
+    font-family: "PingFang SC", "Microsoft YaHei", -apple-system, system-ui, sans-serif; }
+  #app { position: relative; width: 100%; height: 100vh; overflow: hidden; }
+  .scene { position: absolute; inset: 0; display: none; flex-direction: column;
+    align-items: center; justify-content: center; padding: 6vh 8vw; text-align: center; }
+  .scene.active { display: flex; animation: fade .6s ease; }
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+  .badge { display: inline-block; padding: 6px 14px; border: 1px solid #30363d;
+    border-radius: 999px; font-size: 14px; color: #8b949e; margin-bottom: 24px; }
+  h1 { font-size: 64px; font-weight: 800; letter-spacing: 1px;
+    background: linear-gradient(90deg,#58a6ff,#a371f7); -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent; }
+  h2 { font-size: 40px; font-weight: 700; margin-bottom: 18px; }
+  .sub { font-size: 22px; color: #8b949e; margin-top: 14px; }
+  .tag-row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 26px; }
+  .tag { font-size: 13px; padding: 5px 12px; background: #161b22; border: 1px solid #30363d;
+    border-radius: 6px; color: #8b949e; }
+  .flow { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; justify-content: center; margin: 30px 0; }
+  .node { padding: 16px 22px; border-radius: 10px; font-size: 18px; font-weight: 600;
+    background: #161b22; border: 1px solid #30363d; }
+  .arrow { font-size: 24px; color: #58a6ff; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 15px;
+    color: #79c0ff; word-break: break-all; }
+  .kv { display: inline-block; text-align: left; margin-top: 10px; line-height: 1.9; font-size: 18px; }
+  .hf-line { font-size: 20px; margin: 8px 0; }
+  .hf-bad { color: #f85149; font-weight: 700; }
+  .hf-warn { color: #d29922; font-weight: 700; }
+  .hf-ok { color: #3fb950; font-weight: 700; }
+  table { border-collapse: collapse; margin-top: 18px; font-size: 15px; max-width: 920px; }
+  th, td { border: 1px solid #30363d; padding: 9px 14px; text-align: left; }
+  th { background: #161b22; color: #8b949e; font-weight: 600; }
+  a { color: #58a6ff; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .chart-wrap { width: 720px; max-width: 80vw; margin-top: 10px; }
+  #caption { position: absolute; left: 0; right: 0; bottom: 0; padding: 26px 8vw 40px;
+    background: linear-gradient(transparent, rgba(13,17,23,.92) 35%); font-size: 22px;
+    line-height: 1.6; text-align: center; }
+  #bar { position: absolute; top: 0; left: 0; height: 5px; background: #58a6ff; width: 0;
+    transition: width .3s linear; z-index: 5; }
+  #hint { position: absolute; top: 14px; right: 18px; font-size: 13px; color: #6e7681; z-index: 5; }
+  .end-links { margin-top: 24px; font-size: 20px; line-height: 2; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="bar"></div>
+  <div id="hint">点击画面可手动切换 · 自动播放中</div>
+
+  <!-- Scene 1 -->
+  <section class="scene" data-dur="32">
+    <span class="badge">Encode · Programmable Money Hackathon · Arc · Checkpoint 3</span>
+    <h1>ArcKeeper</h1>
+    <div class="sub">你的 Aave V3 自主再平衡 Agent（运行于 Arc / Circle 稳定币 L1）</div>
+    <div class="tag-row">
+      <span class="tag">Arc (Circle Stablecoin L1)</span><span class="tag">Aave V3</span>
+      <span class="tag">Autonomous Agent</span><span class="tag">x402 / MPP</span>
+      <span class="tag">Ethereum / Sepolia</span>
+    </div>
+  </section>
+
+  <!-- Scene 2 -->
+  <section class="scene" data-dur="45">
+    <h2>架构：监控 → 决策 → 执行</h2>
+    <div class="flow">
+      <div class="node">Monitor</div><div class="arrow">→</div>
+      <div class="node">Rebalancer</div><div class="arrow">→</div>
+      <div class="node">Arc / Aave V3</div>
+    </div>
+    <div class="kv">
+      • 定时读取 Aave V3 账户数据（抵押 / 债务 / Health Factor）<br>
+      • 按阈值决策：repay 或 supply，无需人工干预<br>
+      • 钱包后端基于 <b>Circle Agent Stack</b>（Arc 原生集成），签名不离开 Agent<br>
+      • 6 个模块，<span class="hf-ok">54 个单元测试全部通过</span>
+    </div>
+  </section>
+
+  <!-- Scene 3 -->
+  <section class="scene" data-dur="42">
+    <h2>真实链上建仓（Sepolia）</h2>
+    <div class="kv">
+      钱包：<span class="mono">0x1573C3d151200922375bC48012BB1f232B2cF531</span><br>
+      Pool：<span class="mono">0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951</span>
+    </div>
+    <div style="margin-top:24px">
+      <div class="hf-line">HF <b>2.0</b> — 建仓（空）</div>
+      <div class="hf-line">HF <span class="hf-warn">1.65</span> — borrow 100 USDC（WARNING）</div>
+      <div class="hf-line">HF <span class="hf-bad">1.2692</span> — 再借 30 USDC（DANGER，跌破 1.5）</div>
+    </div>
+    <div class="sub">全部为真实 Sepolia 交易，非模拟</div>
+  </section>
+
+  <!-- Scene 4 -->
+  <section class="scene" data-dur="50">
+    <h2>Dashboard：自动再平衡</h2>
+    <div class="chart-wrap"><canvas id="hfChart"></canvas></div>
+    <div class="sub">HF 跌破 1.5 → 自动 repay 32.5 USDC → 回到 <span class="hf-warn">1.6923</span></div>
+  </section>
+
+  <!-- Scene 5 -->
+  <section class="scene" data-dur="52">
+    <h2>链上验证（每步可查）</h2>
+    <table>
+      <tr><th>动作</th><th>Tx Hash（点开 Sepolia Etherscan）</th></tr>
+      <tr><td>Supply WETH</td><td><a href="https://sepolia.etherscan.io/tx/0x807937e3b31f1cf05507d9a01a37ccb06d94054588376efefff8a662c0fbb28c" target="_blank">0x8079…bb28c</a></td></tr>
+      <tr><td>SetCollateral</td><td><a href="https://sepolia.etherscan.io/tx/0xb58a1fa4e2f89e259c139c676383e54beb75f5785a2ec7b4ec7422f40d17c7f0" target="_blank">0xb58a…c7f0</a></td></tr>
+      <tr><td>Borrow 100 USDC</td><td><a href="https://sepolia.etherscan.io/tx/0x012e58fe1840a92b0d9325d9f78b573f0062960bb1ab50bd9a3ac12075b9860d" target="_blank">0x012e…860d</a></td></tr>
+      <tr><td>Borrow 30 USDC</td><td><a href="https://sepolia.etherscan.io/tx/0xd9b5b3571a3e92c7f2fe8d2130857ccab2bc59affa7c1c014801e0d70b2416e2" target="_blank">0xd9b5…16e2</a></td></tr>
+      <tr><td>Repay 32.5 USDC</td><td><a href="https://sepolia.etherscan.io/tx/0x22aec5f3856dc29579069fcf4b3f7cf89a379d0c9676ee3976f7bfab16c6c857" target="_blank">0x22ae…6c857</a></td></tr>
+    </table>
+    <div class="sub">repay tx 状态 success · from 上述钱包 · 金额 32.5 USDC</div>
+  </section>
+
+  <!-- Scene 6 -->
+  <section class="scene" data-dur="30">
+    <h2>谢谢观看</h2>
+    <div class="end-links">
+      GitHub：<a href="https://github.com/jnhualu-art/rebalance-keeper/tree/arc-migration" target="_blank">github.com/jnhualu-art/rebalance-keeper</a><br>
+      Live Dashboard：<a href="./dashboard/" target="_blank">./dashboard/</a><br>
+      <span class="sub">我是陆俊华 · 代码开源 · 测试完备 · 每步可链上验证</span>
+    </div>
+  </section>
+
+  <div id="caption"></div>
+</div>
+
+<script>
+const captions = [
+  "在 DeFi 里，借贷头寸最大的风险就是清算。当抵押品价格下跌、Health Factor 跌破清算线，资产会被瞬间清算。ArcKeeper 是运行在 Arc（Circle 的稳定币 L1）上的自主再平衡 Agent——7×24 监控你的 Aave V3 头寸，一旦 HF 逼近危险区就自动偿还债务、拉回安全线。今天我用真实 Sepolia 测试网完整演示一次自动再平衡。",
+  "项目完全开源。核心是事件驱动的「监控—决策—执行」管道：monitor 读 Aave V3 账户数据，rebalancer 按阈值决定 repay 或 supply，钱包后端基于 Circle Agent Stack（Arc 原生集成），签名不离开 Agent。6 个模块，54 个单元测试全过。",
+  "先在我们绑定好的钱包建真实头寸：0.05 ETH 包装成 WETH 作抵押，借 100 USDC，HF 1.65 进入 WARNING；再借 30 USDC 把 HF 压到 1.2692，跌破 1.5 进入 DANGER。这全是真实 Sepolia 交易。",
+  "打开监控 Dashboard。看这条曲线——HF 跌破 1.5，系统立刻触发 DANGER 规则，自动发起 32.5 USDC 偿还，无需人工干预。偿还后 HF 回到 1.6923，重新进入安全区，整个过程几秒完成。",
+  "关键是我们不靠嘴说。审计表每一行都挂真实交易哈希。点开 repay 这笔——Sepolia Etherscan 显示 success、金额 32.5 USDC、从我刚才的钱包发出。supply 和两次 borrow 同样可在链上查到。这就是可验证的自动化。",
+  "ArcKeeper 已跑通完整真实链上生命周期：代码开源、测试完备、每步可链上验证。欢迎在 GitHub 查看 arc-migration 分支，或打开 Live Dashboard 实时查看。我是陆俊华，谢谢观看。"
+];
+
+const scenes = Array.from(document.querySelectorAll('.scene'));
+let idx = 0;
+let timer = null;
+
+function renderChart() {
+  const ctx = document.getElementById('hfChart');
+  if (!ctx || window._hfDone) return;
+  window._hfDone = true;
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: ['建仓', '借100', '借30', '自动repay'],
+      datasets: [{
+        label: 'Health Factor',
+        data: [2.0, 1.65, 1.2692, 1.6923],
+        borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,.12)',
+        fill: true, tension: .3, pointRadius: 5,
+        pointBackgroundColor: ['#3fb950','#d29922','#f85149','#d29922']
+      }, {
+        label: '阈值 1.5',
+        data: [1.5,1.5,1.5,1.5], borderColor: '#f85149',
+        borderDash: [6,6], fill: false, pointRadius: 0
+      }]
+    },
+    options: { responsive: true, plugins: { legend: { display: false } },
+      scales: { y: { min: 1.0, max: 2.2, grid: { color: '#21262d' } },
+                x: { grid: { color: '#21262d' } } } }
+  });
+}
+
+function show(i) {
+  scenes.forEach(s => s.classList.remove('active'));
+  idx = (i + scenes.length) % scenes.length;
+  const sc = scenes[idx];
+  sc.classList.add('active');
+  document.getElementById('caption').textContent = captions[idx];
+  if (idx === 3) renderChart();
+  const dur = parseInt(sc.dataset.dur || '30', 10) * 1000;
+  const bar = document.getElementById('bar');
+  bar.style.transition = 'none'; bar.style.width = '0';
+  requestAnimationFrame(() => { bar.style.transition = `width ${dur}ms linear`; bar.style.width = '100%'; });
+  clearTimeout(timer);
+  timer = setTimeout(() => show(idx + 1), dur);
+}
+
+document.getElementById('app').addEventListener('click', () => show(idx + 1));
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') show(idx + 1);
+  if (e.key === 'ArrowLeft') show(idx - 1);
+});
+show(0);
+</script>
+</body>
+</html>
