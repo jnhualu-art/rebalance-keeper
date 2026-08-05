@@ -1,0 +1,20 @@
+# FlareKeeper FCE — Docker Compose override for Coston2 deployment.
+# Usage: docker compose -f docker-compose.yaml -f docker-compose.coston2.yaml up
+#
+# Swaps the proxy config for the Coston2 variant and binds signatures to
+# chain_id 114. The node's CHAIN_ID and the proxy's chain_id MUST both be 114,
+# or signature verification fails (InvalidTeePublicKeyOrSignature / proxy panic).
+services:
+  ext-proxy:
+    volumes:
+      - ./config/proxy/extension_proxy.coston2.docker.toml:/app/config/config.toml:ro
+
+  extension-tee:
+    environment:
+      - CHAIN_URL=${CHAIN_URL:-https://coston2-api.flare.network/ext/C/rpc}
+      - CHAIN_ID=${CHAIN_ID:-114}
+
+networks:
+  default:
+    name: ${COMPOSE_NETWORK:-flarekeeper-fce-coston2}
+    external: false

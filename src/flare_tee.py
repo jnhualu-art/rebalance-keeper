@@ -26,25 +26,36 @@ This module is the integration seam. It runs in two modes:
   2. REAL (TODO): submit the strategy payload to a Flare Confidential
      Compute enclave, get back the signed quote + result.
 
-FLARE CONFIDENTIAL COMPUTE — REAL INTEGRATION (TODO, research before ship)
---------------------------------------------------------------------------
-Flare runs a network of enclaves. The high-level flow:
-  a. Package the strategy as a CC app (the enclave binary / wasm).
-  b. Register it / get an app-id via the Flare CC control API.
-  c. Submit `{app_id, input}` to the CC submit endpoint
-     (e.g. https://...flare.network/confidential-compute  — verify in docs).
-  d. The enclave executes off-chain, produces `result` + an SGX `quote`
-     (attestation). The quote is verifiable on-chain via Flare's verifier
-     contract (FdcHub / dedicated CC verifier).
-  e. The agent posts the attestation + decision on-chain (or to a contract)
-     so execution can be gated on a valid quote.
+FLARE CONFIDENTIAL COMPUTE — REAL INTEGRATION (Flare Compute Extension)
+----------------------------------------------------------------------
+Flare ships an official **Flare Confidential Compute (FCC)** framework
+(https://dev.flare.network/fcc/overview). An app becomes a *Flare Compute
+Extension (FCE)*: a TEE program whose results are signed by a TEE identity key
+and verified on-chain via the TeeExtensionRegistry / TeeMachineRegistry system
+contracts. FlareKeeper's FCE lives in `fce/`:
 
-For the hackathon we ship SIMULATED now, wire REAL in week 2–3.
+  fce/python/app/handlers.py   REBALANCE/COMPUTE handler = the confidential brain
+  fce/contracts/FlareKeeperInstructionSender.sol  sends instructions to the TEE
+  fce/contracts/FlareKeeperVerifier.sol            on-chain TEE-signature gate (P1)
+
+Three execution paths:
+  SIMULATED (default)  — local hash attestation, no enclave needed.
+  FCE_LOCAL  (FLARE_FCE_LOCAL=1) — runs the *real* FCE handler code locally and
+                         signs the result with the tee-node TEE_ACTION_RESULT
+                         scheme, so the attestation is verifiable by
+                         FlareKeeperVerifier exactly as in production.
+  REAL FCC  (FLARE_CC_REAL=1 + FLARE_CC_ENDPOINT) — submits to a registered FCC
+                         enclave and verifies the returned quote (see below).
+
+This keeps the full "confidential AND verifiable" loop demoable today while the
+production path uses Flare's hosted TEE machines (registered via the scaffold's
+deploy tooling against Coston2's TeeExtensionRegistry).
 """
 
 import hashlib
 import json
 import os
+import sys
 import time
 import urllib.request
 import urllib.error
@@ -58,6 +69,10 @@ class FlareTeeError(Exception):
 
 # Flip to True once the real Flare CC enclave is wired (see TODO above).
 CC_REAL_ENCLAVE = os.getenv("FLARE_CC_REAL", "0") == "1"
+
+# Run the REAL FCE handler code locally and TEE-sign the result (verifiable by
+# FlareKeeperVerifier). Needs the fce/ python deps (eth_utils, eth_keys).
+FCE_LOCAL = os.getenv("FLARE_FCE_LOCAL", "0") == "1"
 
 
 @dataclass
@@ -90,6 +105,8 @@ class ConfidentialCompute:
         strategy_fn:     pure function(decision_inputs) -> decision dict
         """
         if self.real:
+            if FCE_LOCAL:
+                return self._compute_fce(decision_inputs, strategy_fn)
             return self._compute_real(decision_inputs, strategy_fn)
         return self._compute_simulated(decision_inputs, strategy_fn)
 
@@ -112,6 +129,41 @@ class ConfidentialCompute:
             decision=decision,
             attestation=attestation,
             enclave_mode="simulated",
+            app_id=self.app_id,
+            verified=True,
+        )
+
+    # ── FCE_LOCAL: run the real FCE handler code, TEE-sign the result ──
+    def _compute_fce(self, decision_inputs, strategy_fn) -> AttestedDecision:
+        """Run the *real* FlareKeeper FCE handler code and TEE-sign the result.
+
+        The decision is produced by fce/python/app/handlers.py — the exact code
+        that runs inside the enclave in production. The result is signed with the
+        tee-node TEE_ACTION_RESULT scheme, so the attestation is verifiable by
+        FlareKeeperVerifier on-chain exactly as in production (only the key is
+        simulated here). This is the bridge between the agent loop and the FCE.
+        """
+        try:
+            fce_py = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "fce", "python",
+            )
+            if fce_py not in sys.path:
+                sys.path.insert(0, fce_py)
+            from fce_sdk import compute_and_sign  # type: ignore
+        except Exception as e:  # pragma: no cover
+            raise FlareTeeError(f"FCE SDK unavailable (need eth_utils+eth_keys): {e}")
+
+        tb = float(decision_inputs.get("treasury_balance", 0.0))
+        th = float(decision_inputs.get("treasury_health", 1.0))
+        floor = float(decision_inputs.get("floor", 20.0))
+        ceiling = float(decision_inputs.get("ceiling", 50.0))
+
+        decision, signature_hex, _result_hash_hex = compute_and_sign(tb, th, floor, ceiling)
+        return AttestedDecision(
+            decision=decision,
+            attestation=signature_hex,  # 0x + 65-byte TEE signature
+            enclave_mode="fce",
             app_id=self.app_id,
             verified=True,
         )
