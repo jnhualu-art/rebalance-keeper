@@ -5,15 +5,21 @@ pragma solidity ^0.8.27;
 import { ITeeExtensionRegistry } from "./interfaces/ITeeExtensionRegistry.sol";
 import { ITeeMachineRegistry } from "./interfaces/ITeeMachineRegistry.sol";
 
-/// @title FlareKeeperInstructionSender
+/// @title HelloWorldInstructionSender
 /// @author FlareKeeper
 /// @notice Flare Compute Extension entry point for FlareKeeper's confidential
 ///         rebalancer. Sends a REBALANCE/COMPUTE instruction to the TEE; the
 ///         enclave runs the (private) strategy and returns a signed decision
 ///         that is verified on-chain by FlareKeeperVerifier.
 ///
+/// NOTE: The contract is named HelloWorldInstructionSender only because the
+///       official fce-extension-scaffold tooling (generate-bindings.sh /
+///       tools/cmd/deploy-contract) hardcodes that name + the helloworld Go
+///       bindings package. The on-chain OP_TYPE/OP_COMMAND below are FlareKeeper's
+///       own (REBALANCE / COMPUTE); the rebalance logic is what runs inside the TEE.
+///
 /// DO NOT MODIFY: constructor, setExtensionId(), _getExtensionId()
-contract FlareKeeperInstructionSender {
+contract HelloWorldInstructionSender {
     /// @notice Operation type for rebalancer actions.
     // forge-lint: disable-next-line(unsafe-typecast)
     bytes32 public constant OP_TYPE_REBALANCE = bytes32("REBALANCE");

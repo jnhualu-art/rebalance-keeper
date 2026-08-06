@@ -1,0 +1,4 @@
+# Dev/test deps for the FlareKeeper FCE Python extension.
+# Mirrors the scaffold's python/requirements-dev.txt (LANGUAGE_TEST_CMD).
+-r requirements.txt
+pytest>=8.0

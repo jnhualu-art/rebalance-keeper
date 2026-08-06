@@ -37,9 +37,14 @@ fce/
     fce_sdk.py       # shared seam: run handler + TEE-sign (used by the agent loop)
     main.py  Dockerfile  requirements.txt
   contracts/
-    FlareKeeperInstructionSender.sol   # sends REBALANCE instructions to the TEE
+    InstructionSender.sol              # on-chain entry (named HelloWorldInstructionSender
+                                        #   for scaffold tooling compat; op-types are REBALANCE/COMPUTE)
     FlareKeeperVerifier.sol            # ★ on-chain TEE-signature gate (P1)
     interfaces/                        # TeeExtensionRegistry / TeeMachineRegistry
+  scripts/                             # ★ official scaffold scripts (pre/post-build, start/stop, test)
+    test_rebalance.py                  # ★ custom REBALANCE/COMPUTE e2e test (replaces HelloWorld test.sh)
+  tools/  docker/  proxy/  go/         # ★ official scaffold build/register infra (Go)
+  config/coston2/deployed-addresses.json  # ★ Flare system registry addrs on Coston2
   scripts/
     demo_confidential.py   # offline: confidential compute + TEE sign + verify
     deploy_coston2.py      # deploy FlareKeeperVerifier to Coston2 + on-chain verify
@@ -68,29 +73,50 @@ Output:
    EIP-191 + secp256k1).
 3. **OFFLINE VERIFY** — the signer is recovered and compared to `teeAddress`.
 
-## Run the FCE on Coston2 (Docker)
+## Run the FCE on Coston2 (P0 — real FCE registration)
 
-The runtime (tee-node `server` binary, ext-proxy, redis) is shared infrastructure
-from the official `fce-extension-scaffold`. Build the base image once, then bring
-up FlareKeeper's Python extension:
+The `fce/` directory is now a **complete fork of the official
+`fce-extension-scaffold`** (Python implementation) plus FlareKeeper's own handler.
+All build/register tooling (`scripts/`, `tools/`, `docker/`, `proxy/`, `go/`,
+`config/coston2/deployed-addresses.json`) is bundled, so the full registration
+chain runs in-place.
+
+> Prereqs (must run in WSL — Docker / Go / ngrok live there):
+> - Docker + Go installed; `forge` (Foundry) for `generate-bindings.sh`
+> - A public tunnel for the proxy: `ngrok http 6674` (or cloudflared) → set
+>   `EXT_PROXY_URL` in `.env` to the HTTPS URL
+> - **Coston2 indexer DB read-only creds** from Flare (apply via Flare's FCC
+>   builder channel) → fill `config/proxy/extension_proxy.coston2.docker.toml`
+>   `[db]` block (`<indexer-db-host>` etc.)
 
 ```bash
-# 1. Build the shared tee-node base image (one-time, from the official scaffold)
-git clone https://github.com/flare-foundation/fce-extension-scaffold flare-fce-scaffold
-cd flare-fce-scaffold && ./scripts/build-node-base.sh && cd -
-
-# 2. Configure + run FlareKeeper's extension on Coston2
 cd rebalance-keeper/fce
-cp .env.example .env            # set PROXY_PRIVATE_KEY / GOVERNANCE / EXT_PROXY_URL
-docker compose -f docker-compose.yaml -f docker-compose.coston2.yaml up
+cp .env.example .env
+#   edit .env: PROXY_PRIVATE_KEY, INITIAL_OWNER, CHAIN_URL, SIMULATED_TEE=true,
+#             NORMAL_PROXY_URL (default https://tee-proxy-coston2-1.flare.rocks),
+#             EXT_PROXY_URL=https://<your-ngrok>.ngrok-free.dev
+
+# 1) deploy InstructionSender + register extension on-chain → config/extension.env
+./scripts/pre-build.sh
+
+# 2) build images + bring up extension-tee / ext-proxy / redis (Docker)
+./scripts/start-services.sh --chain coston2
+
+# 3) allow TEE code version + set governance + register TEE machine on-chain
+./scripts/post-build.sh
+
+# 4) send a REBALANCE/COMPUTE instruction and poll the proxy for the signed decision
+python3 scripts/test_rebalance.py
 ```
+
+`SIMULATED_TEE=true` uses Flare's simulated code hash on Coston2 (no real
+Confidential VM hardware for builders) — the registration, relay, and
+attestation *flow* are real; only the enclave attestation is simulated.
 
 The tee-node forwards `REBALANCE/COMPUTE` instructions to `fce/python/app/handlers.py`
 (which runs `strategy.evaluate`), signs the decision with the **TEE identity key**
 via the `TEE_ACTION_RESULT` scheme, and the result is verifiable on-chain by
-`FlareKeeperVerifier`. Register the extension (governance + `TeeExtensionRegistry`)
-with the scaffold's `extension-setup.sh` / `post-build.sh` tooling — they supply the
-`TeeExtensionRegistry` / `TeeMachineRegistry` addresses and the tee-node binary.
+`FlareKeeperVerifier`.
 
 ## On-chain verify (Coston2)
 
@@ -123,13 +149,13 @@ The full decision hash / signature proof is in `fce/scripts/coston2_proof.json`.
 
 ## Production deployment (real TEE)
 
-`FlareKeeperInstructionSender` + `FlareKeeperVerifier` are registered as an FCE
-via the official FCC tooling (the `fce-extension-scaffold` / `fce-sign` repos),
-which supplies the `TeeExtensionRegistry` / `TeeMachineRegistry` addresses on
-Coston2 and the tee-node binary. The handler code in `fce/python/app/` is
-shipped as the enclave image unchanged; the TEE identity key is generated inside
+`InstructionSender` (registered as an FCE) + `FlareKeeperVerifier` form the
+verifiable path. The handler code in `fce/python/app/` ships as the enclave image
+unchanged. On a real Confidential VM, the TEE identity key is generated inside
 the enclave and the real `TEE_ACTION_RESULT` signatures are produced by the
-tee-node — making the on-chain verify path fully enforceable.
+tee-node — making the on-chain verify path fully enforceable. For the live
+Coston2 registration see **Run the FCE on Coston2 (P0)** above; `MODE=0` (not the
+dev `MODE=1`) is required for production attestation.
 
 ## Honesty note
 

@@ -1,7 +1,8 @@
 """★ Configuration: version and operation identifiers for the FlareKeeper FCE.
 
 Mirrors the scaffold's app/config.py. The op-type and op-command strings MUST
-match the bytes32 constants in fce/contracts/FlareKeeperInstructionSender.sol
+match the bytes32 constants in fce/contracts/InstructionSender.sol
+(contract is named HelloWorldInstructionSender for scaffold tooling compat)
 exactly, or actions fall through to "unsupported op type".
 """
 
