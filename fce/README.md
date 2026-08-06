@@ -95,8 +95,8 @@ with the scaffold's `extension-setup.sh` / `post-build.sh` tooling — they supp
 ## On-chain verify (Coston2)
 
 ```bash
-export FLARE_PRIVATE_KEY=0x...      # funded Coston2 account (faucet: flare.network/coston2)
-export FLARE_RPC_URL=https://coston2-api.flare.network/ext/C/rpc
+# FLARE_PRIVATE_KEY + FLARE_RPC_URL are auto-loaded from repo-root .env
+# (no need to export secrets into the shell).
 python fce/scripts/demo_confidential.py --onchain
 ```
 
@@ -104,6 +104,22 @@ python fce/scripts/demo_confidential.py --onchain
 contract deps) and calls `verifyDecision()`, which runs the **identical**
 `ecrecover` check on-chain. Execution of the rebalance is gated on a stored,
 verified decision hash.
+
+### Coston2 deployment record
+
+Verified live on Coston2 (chain id 114) by `python fce/scripts/demo_confidential.py --onchain`:
+
+| field | value |
+|---|---|
+| Verifier address | `0x4C79c50085668e42a3626eca81F39EE9F9185201` |
+| Deploy tx | `0x88d1c0cc0d490549ce779b47570c491a3fa47295e4130dd02d0ef1c6202703ea` |
+| setTeeAddress tx | `0x730d124922fa049924755d2f7f2f619319e068a30073d8814864e42fdb86091b` |
+| verifyDecision tx | `0xfa03386321fe8ad97fa0adf18614598a444bf2b8b50a3b52f1e70e52361cff5d` |
+| `verifyDecision()` result | **ACCEPTED** (status=1, `signer == teeAddress`) |
+| TEE identity key (demo) | `0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a` (simulated `0x11…11`, for reproducibility) |
+| Deployer | funded Coston2 account from `.env` |
+
+The full decision hash / signature proof is in `fce/scripts/coston2_proof.json`.
 
 ## Production deployment (real TEE)
 

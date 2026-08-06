@@ -1,0 +1,11 @@
+{
+  "network": "coston2",
+  "chain_id": 114,
+  "verifier_address": "0x4C79c50085668e42a3626eca81F39EE9F9185201",
+  "tee_address": "0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a",
+  "action_id": "0xabababababababababababababababababababababababababababababababab",
+  "submission_tag": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+  "result_hash": "0x961c6ccb196d1c1856903d5912b769c6959e0967c03b7f45aac6549e449e44d4",
+  "signature": "0x0d0db46327361940b545705afac7bfe052542cbe92583a3abb48df844173c85b3407e69895dcfe4120215e5e794fd95d979c493d51e9c2f505d9e2a7bee2c6c61b",
+  "verify_decision_accepted": true
+}

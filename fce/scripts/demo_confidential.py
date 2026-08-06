@@ -34,6 +34,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(_HERE, "..", "python")))
 
 from eth_utils import keccak  # noqa: E402
 from eth_keys import keys  # noqa: E402
+from eth_account import Account  # noqa: E402
+from eth_account.messages import encode_defunct  # noqa: E402
 from base.encoding import bytes_to_hex, hex_to_bytes  # noqa: E402
 from app.handlers import handle_compute  # noqa: E402
 
@@ -44,6 +46,31 @@ TEE_PRIVATE_KEY = bytes.fromhex("11" * 32)
 TEE_PUBLIC = keys.PrivateKey(TEE_PRIVATE_KEY).public_key.to_address()
 TEE_ACTION_RESULT_BYTES32 = b"TEE_ACTION_RESULT".ljust(32, b"\x00")
 CHAIN_ID = 114  # Coston2
+
+
+def _load_dotenv(path=None):
+    """Minimal CR-safe .env loader (no external deps). Sets only unset vars.
+
+    Lets `python demo_confidential.py --onchain` pick up FLARE_PRIVATE_KEY and
+    FLARE_RPC_URL from the repo-root .env without printing secrets.
+    """
+    if path is None:
+        # repo root .env (rebalance-keeper/.env)
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".env")
+    if not os.path.exists(path):
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            k, v = k.strip(), v.strip().strip('"').strip("'")
+            if k and k not in os.environ:
+                os.environ[k] = v
+
+
+_load_dotenv()
 
 
 def run_confidential_compute(treasury_balance: float, treasury_health: float,
@@ -58,12 +85,38 @@ def run_confidential_compute(treasury_balance: float, treasury_health: float,
 
 
 def simulate_tee_sign(result_hash: bytes) -> tuple[bytes, bytes]:
-    """Simulate tee-node signing the ActionResult. Returns (payload_hash, sig65)."""
+    """Simulate tee-node signing the ActionResult. Returns (payload_hash, sig65).
+
+    Uses the Ethereum personal_sign scheme (eth_account.sign_message), which is
+    exactly what the Solidity verifier's ecrecover expects: the message
+    `payload_hash` is prefixed and hashed into `eth_signed`, and that is what
+    gets signed. This matches the real Flare tee-node TEE_ACTION_RESULT signing.
+    """
     payload_hash = keccak(
         TEE_ACTION_RESULT_BYTES32 + CHAIN_ID.to_bytes(32, "big") + result_hash)
-    eth_signed = keccak(b"\x19Ethereum Signed Message:\n32" + payload_hash)
-    signed = keys.PrivateKey(TEE_PRIVATE_KEY).sign_msg_hash(eth_signed)
-    return payload_hash, signed.to_bytes()  # 65 bytes r‖s‖v
+    acct = Account.from_key(TEE_PRIVATE_KEY)
+    sm = acct.sign_message(encode_defunct(hexstr=payload_hash.hex()))
+    return payload_hash, sm.signature  # 65 bytes r‖s‖v (v already 27/28)
+
+
+def _write_proof(verifier_addr, ok, action_id, submission_tag, result_hash, signature):
+    """Persist the on-chain proof to JSON so the deployed address survives even
+    if a later step crashes (buffered stdout would otherwise be lost)."""
+    proof = {
+        "network": "coston2",
+        "chain_id": CHAIN_ID,
+        "verifier_address": verifier_addr,
+        "tee_address": TEE_PUBLIC,
+        "action_id": "0x" + action_id.hex(),
+        "submission_tag": "0x" + submission_tag.hex(),
+        "result_hash": "0x" + result_hash.hex(),
+        "signature": "0x" + signature.hex(),
+        "verify_decision_accepted": bool(ok),
+    }
+    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "coston2_proof.json")
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(proof, f, indent=2)
+    print(f"   proof written -> {out}")
 
 
 def main() -> None:
@@ -87,7 +140,11 @@ def main() -> None:
     print(f"   resultHash  = 0x{result_hash.hex()}")
     print(f"   teeAddress  = {TEE_PUBLIC}")
 
-    recovered = keys.PrivateKey(TEE_PRIVATE_KEY).sign_msg_hash(payload_hash).recover_public_key_from_msg_hash(payload_hash).to_address()
+    # Real offline check: recover the signer from the actual signature using the
+    # same personal_sign scheme (recover_message pairs with sign_message).
+    recovered = Account.recover_message(
+        encode_defunct(hexstr=payload_hash.hex()),
+        vrs=(signature[64], signature[0:32], signature[32:64]))
     print("\n== OFFLINE VERIFY ==")
     print(f"   recovered signer == teeAddress? {recovered.lower() == TEE_PUBLIC.lower()}")
 
@@ -95,11 +152,17 @@ def main() -> None:
         print("\n== ON-CHAIN VERIFY (deploy FlareKeeperVerifier to Coston2) ==")
         sys.path.insert(0, _HERE)
         from deploy_coston2 import deploy_verifier, verify_on_chain
-        verifier_addr = deploy_verifier(TEE_PRIVATE_KEY)
-        ok = verify_on_chain(verifier_addr, action_id, submission_tag, result_data,
-                             status, signature)
-        print(f"   verifier@  = {verifier_addr}")
-        print(f"   on-chain verifyDecision() accepted TEE signature? {ok}")
+        try:
+            verifier_addr = deploy_verifier(TEE_PRIVATE_KEY)
+            print(f"   verifier@  = {verifier_addr}")
+            ok = verify_on_chain(verifier_addr, action_id, submission_tag, result_data,
+                                 status, signature)
+            print(f"   on-chain verifyDecision() accepted TEE signature? {ok}")
+            _write_proof(verifier_addr, ok, action_id, submission_tag, result_hash, signature)
+        except Exception as e:
+            # deploy_verifier already prints [deploy] tx; re-raise after flush
+            print(f"   [ERROR] {e}")
+            raise
     else:
         print("\n== ON-CHAIN VERIFY ==")
         print("   (skipped — run with --onchain + a funded Coston2 key in .env)")

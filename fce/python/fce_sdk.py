@@ -23,6 +23,8 @@ if _HERE not in sys.path:
 
 from eth_utils import keccak  # noqa: E402
 from eth_keys import keys  # noqa: E402
+from eth_account import Account  # noqa: E402
+from eth_account.messages import encode_defunct  # noqa: E402
 from base.encoding import bytes_to_hex, hex_to_bytes  # noqa: E402
 from app.handlers import handle_compute  # noqa: E402
 
@@ -49,11 +51,17 @@ def compute_decision(treasury_balance: float, treasury_health: float,
 
 
 def sign_result(result_hash: bytes) -> bytes:
-    """Sign a decision result the way the tee-node does (TEE_ACTION_RESULT)."""
+    """Sign a decision result the way the tee-node does (TEE_ACTION_RESULT).
+
+    Uses the Ethereum personal_sign scheme (eth_account.sign_message), which is
+    exactly what FlareKeeperVerifier's ecrecover expects: the message
+    `payload_hash` is prefixed and hashed into `eth_signed`, and that is signed.
+    """
     payload_hash = keccak(
         TEE_ACTION_RESULT_BYTES32 + CHAIN_ID.to_bytes(32, "big") + result_hash)
-    eth_signed = keccak(b"\x19Ethereum Signed Message:\n32" + payload_hash)
-    return keys.PrivateKey(TEE_PRIVATE_KEY).sign_msg_hash(eth_signed).to_bytes()
+    acct = Account.from_key(TEE_PRIVATE_KEY)
+    sm = acct.sign_message(encode_defunct(hexstr=payload_hash.hex()))
+    return sm.signature  # 65 bytes r‖s‖v (v already 27/28)
 
 
 def compute_and_sign(treasury_balance: float, treasury_health: float,

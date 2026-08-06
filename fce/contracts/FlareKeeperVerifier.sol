@@ -72,7 +72,7 @@ contract FlareKeeperVerifier is ITeeVerifier {
         uint8 status
     ) public pure returns (bytes32) {
         bytes32 resultHash = keccak256(
-            abi.encodePacked(keccak256(resultData), actionId, keccak256(bytes(submissionTag)), status)
+            abi.encodePacked(keccak256(resultData), actionId, keccak256(abi.encodePacked(submissionTag)), status)
         );
         return resultHash;
     }

@@ -78,6 +78,7 @@ def deploy_verifier(tee_private_key: str) -> str:
     tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
     rcpt = w3.eth.wait_for_transaction_receipt(tx_hash)
     addr = rcpt.contractAddress
+    print(f"  [deploy] verifier={addr} tx={tx_hash.hex()}")
 
     # set teeAddress so the verifier accepts the TEE signature
     vcontract = w3.eth.contract(address=addr, abi=abi)
@@ -91,12 +92,13 @@ def deploy_verifier(tee_private_key: str) -> str:
     signed2 = acct.sign_transaction(tx2)
     w3.eth.send_raw_transaction(signed2.raw_transaction)
     w3.eth.wait_for_transaction_receipt(signed2.hash)
+    print(f"  [setTeeAddress] tx={signed2.hash.hex()}")
     return addr
 
 
 def verify_on_chain(verifier_addr: str, action_id: bytes, submission_tag: bytes,
                     result_data: bytes, status: int, signature: bytes,
-                    tee_private_key: str) -> bool:
+                    tee_private_key: str = None) -> bool:
     """Call verifyDecision() on-chain and return whether it was accepted."""
     w3 = _w3()
     abi, _ = _compile_verifier()
@@ -105,6 +107,8 @@ def verify_on_chain(verifier_addr: str, action_id: bytes, submission_tag: bytes,
     r = signature[0:32]
     s = signature[32:64]
     v = signature[64]
+    if v < 27:  # eth_keys to_bytes() yields recovery id (0/1); ecrecover needs 27/28
+        v += 27
     acct = Account.from_key(PRIVATE_KEY)
     tx = vcontract.functions.verifyDecision(
         action_id, submission_tag, result_data, status, v, r, s
@@ -118,6 +122,7 @@ def verify_on_chain(verifier_addr: str, action_id: bytes, submission_tag: bytes,
     signed = acct.sign_transaction(tx)
     tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
     rcpt = w3.eth.wait_for_transaction_receipt(tx_hash)
+    print(f"  [verifyDecision] tx={tx_hash.hex()} status={rcpt.status}")
     if rcpt.status != 1:
         return False
     decision_hash = vcontract.functions.computeDecisionHash(
