@@ -68,13 +68,17 @@ for (const address of addresses) {
 
   const hasGas = eth > 0n;
   const hasUsdc = usdc > 0n;
-  const ready = hasGas && hasUsdc;
+
+  // Under the exact scheme the payer signs an EIP-3009 authorization and the
+  // facilitator submits it, paying the gas. A payer with zero ETH can still
+  // pay, so gas is reported but does not gate readiness.
+  const ready = hasUsdc;
   if (ready) anyReady = true;
 
   console.log(`address : ${address}`);
-  console.log(`  ETH    : ${formatUnits(eth, 18)}   ${hasGas ? 'ok' : 'MISSING - gas'}`);
+  console.log(`  ETH    : ${formatUnits(eth, 18)}   ${hasGas ? 'ok' : 'none - not needed, settlement is gasless'}`);
   console.log(`  USDC   : ${formatUnits(usdc, 6)}   ${hasUsdc ? 'ok' : 'MISSING - payment'}`);
-  console.log(`  status : ${ready ? 'READY' : hasGas ? 'needs USDC' : hasUsdc ? 'needs ETH' : 'needs both'}\n`);
+  console.log(`  status : ${ready ? 'READY' : 'needs USDC'}\n`);
 }
 
 if (!anyReady) {

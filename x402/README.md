@@ -75,3 +75,40 @@ machine; recorded here so nobody re-derives them.
 3. **`@x402/hedera` pulls in a very large transitive tree** (Hedera SDK →
    React Native / Metro tooling). Resolution takes several minutes; use
    `--omit=optional` and run it in the background.
+
+## Verified end to end
+
+The full loop runs against the x402 reference facilitator on Base Sepolia:
+service returns 402, client signs an EIP-3009 authorization, facilitator
+settles on chain, client retries and receives the payload.
+
+```bash
+node src/server.js      # terminal 1
+node src/client.js      # terminal 2
+```
+
+A successful run ends with the settlement transaction hash, for example:
+
+```
+0xe99fbdbef25ae410d2d6a437d4c490694efa90138b28f953f4c64fd862d047d7
+```
+
+Two things worth knowing before debugging a failed payment.
+
+**The payer needs USDC but not ETH.** Under the exact scheme the payer signs an
+authorization and the facilitator submits it, paying the gas. The settlement
+above cost the payer 0.001 USDC and zero gas. `src/balance.js` reports this
+correctly; do not top up gas to fix a payment failing for another reason.
+
+**A bad payer address looks exactly like a signing bug.** A payer derived from
+an obvious filler key such as `0xabab...` is a public address on a public
+testnet and can be rejected at the token level, which surfaces only as
+`invalid_exact_evm_signature`. Before suspecting the signing code, sign the
+same authorization with a throwaway key: if the token then fails on balance
+rather than signature, the original address is the problem. The controls live
+in `scripts/diff-*.mjs`.
+
+The facilitator's `invalidReason` distinguishes the two cases:
+`invalid_exact_evm_signature` means the signature did not verify, while
+`invalid_exact_evm_insufficient_balance` means it did and the payer is simply
+short of funds.
