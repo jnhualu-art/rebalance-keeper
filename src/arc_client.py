@@ -15,10 +15,9 @@ Key facts (verified against https://docs.arc.io):
   - Native USDC gas uses 18 decimals; we standardise on the 6-decimal ERC-20 view.
 """
 
-import json
-import urllib.request
-import urllib.error
 from typing import Dict, Optional
+
+from src.arc_rpc import ArcRPC, ArcRPCError
 
 
 class ArcError(Exception):
@@ -36,30 +35,22 @@ class ArcClient:
     ):
         from src import config
 
-        self.rpc_url = rpc_url or config.ARC_RPC_URL
+        self._rpc_client = ArcRPC(rpc_url)
         self.chain_id = chain_id or config.ARC_CHAIN_ID
         self.usdc_address = (usdc_address or config.ARC_USDC_ERC20).lower()
 
+    @property
+    def rpc_url(self) -> str:
+        """Currently active RPC endpoint (read-only)."""
+        return self._rpc_client.rpc_url
+
     # ── low-level RPC ──────────────────────────────────────────
     def _rpc(self, method: str, params: list) -> str:
-        body = json.dumps(
-            {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
-        ).encode()
-        req = urllib.request.Request(
-            self.rpc_url,
-            data=body,
-            headers={"Content-Type": "application/json"},
-        )
+        """Delegate to the shared transport, preserving the ArcError contract."""
         try:
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                data = json.load(resp)
-        except urllib.error.HTTPError as e:
-            raise ArcError(f"HTTP {e.code}: {e.reason}")
-        except urllib.error.URLError as e:
-            raise ArcError(f"Network error: {e.reason}")
-        if "error" in data:
-            raise ArcError(str(data["error"]))
-        return data.get("result")
+            return self._rpc_client.call(method, params)
+        except ArcRPCError as exc:
+            raise ArcError(str(exc)) from exc
 
     # ── chain / block queries ──────────────────────────────────
     def get_chain_id(self) -> int:
