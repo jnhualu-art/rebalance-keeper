@@ -45,7 +45,11 @@ const routes = {
       price: `$${config.service.priceUsdc}`,
       network: config.evm.network,
       payTo: config.evm.payTo,
-      maxTimeoutSeconds: 60,
+      // How long the signed authorization stays valid. It has to cover
+      // verification *and* the facilitator's on-chain settlement, not just
+      // this server's handling time. A window that is too short surfaces as a
+      // rejected signature rather than as an obvious timeout.
+      maxTimeoutSeconds: 600,
     },
     description: 'ArcKeeper treasury risk signal',
     mimeType: 'application/json',
@@ -128,6 +132,13 @@ async function handle(req, res) {
   const result = await paywalled.processHTTPRequest(context);
 
   if (result.type === 'payment-error') {
+    // Diagnostics only: the reason the protocol layer refused the payment.
+    // Never sent to the caller - a caller should not learn how to tune an
+    // attack against verification.
+    console.error(
+      '[server] payment-error:',
+      JSON.stringify(result, (_k, v) => (typeof v === 'function' ? '[fn]' : v)).slice(0, 1200),
+    );
     // No or invalid payment: hand back the 402 the protocol layer built.
     const { status, headers, body } = result.response;
     res.writeHead(status, headers ?? {});

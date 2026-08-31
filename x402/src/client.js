@@ -16,19 +16,28 @@ import { fileURLToPath } from 'node:url';
 
 import { x402Client, x402HTTPClient } from '@x402/core/client';
 import { wrapFetchWithPayment } from '@x402/fetch';
-import { ExactEvmScheme } from '@x402/evm/exact/client';
-import { createWalletClient, http } from 'viem';
+import { registerExactEvmScheme } from '@x402/evm/exact/client';
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { loadConfig } from './config.js';
 
 export function createAgent(config) {
+  // A viem account (address + signTypedData) already satisfies ClientEvmSigner.
+  // Passing a WalletClient here instead is silently accepted by the types but
+  // fails at signing time with "Address undefined is invalid".
   const account = privateKeyToAccount(config.evm.privateKey);
-  const wallet = createWalletClient({ account, transport: http(config.evm.rpcUrl) });
 
-  const client = new x402Client()
-    .setSpendControls({ maxAmountPerPayment: `$${config.client.maxPaymentUsdc}` })
-    .register(config.evm.network, new ExactEvmScheme(wallet));
+  const client = new x402Client().setSpendControls({
+    maxAmountPerPayment: `$${config.client.maxPaymentUsdc}`,
+  });
+
+  registerExactEvmScheme(client, {
+    signer: account,
+    // Restrict registration to the one chain we operate on. A wildcard
+    // registration would let a malicious service quote any EVM chain.
+    networks: [config.evm.network],
+    schemeOptions: { rpcUrl: config.evm.rpcUrl },
+  });
 
   return {
     account,
