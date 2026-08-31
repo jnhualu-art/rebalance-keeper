@@ -1,0 +1,23 @@
+{
+  "name": "arckeeper-x402",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "x402 agentic payment layer for ArcKeeper (ETHOnline 2026)",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.15"
+  },
+  "scripts": {
+    "server": "node src/server.js",
+    "client": "node src/client.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@x402/core": "^2.24.0",
+    "@x402/evm": "^2.24.0",
+    "@x402/fetch": "^2.24.0",
+    "dotenv": "^17.4.2",
+    "viem": "^2.56.1"
+  }
+}
