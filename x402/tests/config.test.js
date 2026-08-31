@@ -11,10 +11,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 // Set before importing: config reads process.env at load time.
+//
+// Every field the assertions rely on is pinned here, so the suite passes or
+// fails on its own terms. Reading any of it from a developer's .env would
+// make the test green or red according to whoever's laptop it runs on.
 const PRIVATE_KEY = '0x' + 'ab'.repeat(32);
+const EVM_NETWORK = 'eip155:84532'; // Base Sepolia
 process.env.HEDERA_ACCOUNT_ID = '0.0.7326075';
 process.env.HEDERA_PRIVATE_KEY = PRIVATE_KEY;
 process.env.EVM_PAY_TO = '0x' + '11'.repeat(20);
+process.env.EVM_NETWORK = EVM_NETWORK;
 process.env.PRICE_USDC = '0.001';
 process.env.MAX_PAYMENT_USDC = '0.05';
 
@@ -63,7 +69,7 @@ test('malformed amounts are rejected; zero is a valid conversion', () => {
 test('loadConfig wires the EVM payout address through', () => {
   const config = loadConfig();
   assert.equal(config.evm.payTo, '0x' + '11'.repeat(20));
-  assert.equal(config.evm.network, 'eip155:80002');
+  assert.equal(config.evm.network, EVM_NETWORK);
   assert.equal(config.service.priceUsdc, '0.001000');
   assert.equal(config.client.maxPaymentUsdc, '0.050000');
 });
