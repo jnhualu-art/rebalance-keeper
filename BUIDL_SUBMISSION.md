@@ -8,6 +8,10 @@
 
 An on-chain agent that manages a USDC treasury on Arc with zero human intervention — and monetizes its own risk signal through an x402 paywall, so the machine that watches the money also earns it.
 
+## 🎬 Demo Video
+
+https://youtu.be/8dwgH1LVzJU
+
 ## 🎯 Problem Statement
 
 Treasury management is a 24/7 job with no 24/7 staff:

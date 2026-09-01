@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ArcKeeper — 30s Recording Demo (auto-play)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0d1117; color: #c9d1d9;
+  }
+  .mono { font-family: 'Cascadia Code', Consolas, monospace; }
+
+  /* ───── top bar ───── */
+  #topbar {
+    position: fixed; top: 0; left: 0; right: 0; height: 52px; z-index: 50;
+    display: flex; align-items: center; gap: 14px; padding: 0 20px;
+    background: #010409; border-bottom: 1px solid #21262d;
+  }
+  #topbar .logo { font-size: 18px; font-weight: 800; color: #58a6ff; letter-spacing: .5px; }
+  #topbar .logo span { color: #3fb950; }
+  #scenetitle { font-size: 14px; color: #8b949e; font-weight: 600; }
+  #clock { margin-left: auto; font-size: 12px; color: #484f58; }
+  #hint { font-size: 11px; color: #484f58; }
+  #progress { position: fixed; top: 52px; left: 0; height: 3px; width: 0%;
+    background: linear-gradient(90deg, #1f6feb, #3fb950); z-index: 51; transition: width .3s linear; }
+
+  /* ───── stage ───── */
+  #stage {
+    position: absolute; inset: 55px 0 0 0; padding: 22px 28px 90px;
+    display: grid; grid-template-columns: minmax(0, 11fr) minmax(0, 9fr); gap: 22px;
+    align-items: start;
+  }
+  .fadein { opacity: 0; transform: translateY(10px); transition: opacity .7s ease, transform .7s ease; }
+  .fadein.show { opacity: 1; transform: none; }
+
+  /* ───── dashboard clone (left) ───── */
+  .card {
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 18px;
+  }
+  .card h2 { font-size: 12px; color: #8b949e; margin-bottom: 12px; text-transform: uppercase; letter-spacing: .4px; }
+  #dash { display: grid; gap: 14px; }
+  #dash-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  #dash-head h1 { font-size: 20px; color: #58a6ff; }
+  .badge { background: #238636; color: #fff; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .badge.paid { background: #1f6feb; }
+  #snapshot-status { font-size: 12px; color: #8b949e; }
+  #snapshot-status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; background: #3fb950; }
+  body.stale #snapshot-status .dot { background: #f85149; }
+  body.stale #snapshot-status { color: #f85149; font-weight: 600; }
+  #banner {
+    display: none; background: #3d1d1d; border: 1px solid #f85149; color: #f85149;
+    padding: 9px 13px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  }
+  body.stale #banner { display: block; }
+  #dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .big { font-size: 34px; font-weight: 700; color: #3fb950; }
+  .big small { font-size: 15px; color: #8b949e; font-weight: 400; }
+  body.stale .big { color: #6e7681; }
+  body.stale .card.dim { filter: grayscale(.9) brightness(.75); transition: filter .8s; }
+  .card-label { font-size: 11px; color: #8b949e; margin-top: 3px; }
+  .band { margin-top: 14px; }
+  .band-bar { position: relative; height: 10px; border-radius: 5px;
+    background: linear-gradient(90deg,#f85149 0%,#d29922 30%,#3fb950 55%,#d29922 85%,#f85149 100%); opacity: .85; }
+  .band-marker { position: absolute; top: -5px; width: 3px; height: 20px; background: #fff;
+    border-radius: 2px; box-shadow: 0 0 6px rgba(255,255,255,.8); transition: left 1.2s ease; }
+  .band-labels { display: flex; justify-content: space-between; font-size: 10px; color: #8b949e; margin-top: 5px; }
+  .zone-chip { display: inline-block; padding: 3px 12px; border-radius: 12px; font-size: 14px; font-weight: 700;
+    background: rgba(210,153,34,.15); color: #d29922; border: 1px solid #d29922; }
+  .stat-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #21262d; }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-label { color: #8b949e; font-size: 12px; }
+  .stat-value { color: #c9d1d9; font-size: 12px; font-weight: 500; }
+  .tier-row { padding: 8px 0; border-bottom: 1px solid #21262d; }
+  .tier-row:last-child { border-bottom: none; }
+  .tier-path { font-family: Consolas, monospace; color: #58a6ff; font-size: 13px; font-weight: 600; }
+  .tier-price { float: right; color: #3fb950; font-weight: 700; font-size: 13px; }
+  .tier-desc { color: #8b949e; font-size: 11px; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; color: #8b949e; padding: 6px; border-bottom: 1px solid #30363d; font-weight: 500; }
+  td { padding: 6px; border-bottom: 1px solid #21262d; }
+  .tx-link { color: #58a6ff; text-decoration: none; font-family: Consolas, monospace; font-size: 11px; }
+  .status-success { color: #3fb950; }
+  tr.newrow td { animation: flash 1.6s ease; }
+  @keyframes flash { 0% { background: rgba(63,185,80,.25); } 100% { background: transparent; } }
+
+  /* ───── right column ───── */
+  #right { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  #terminal {
+    background: #010409; border: 1px solid #30363d; border-radius: 8px; overflow: hidden;
+  }
+  #term-head { background: #161b22; padding: 7px 12px; font-size: 11px; color: #8b949e;
+    border-bottom: 1px solid #30363d; }
+  #term-body { padding: 12px 14px; font-family: Consolas, monospace; font-size: 12.5px; line-height: 1.75; min-height: 210px; }
+  .tline { opacity: 0; animation: tline .25s forwards; white-space: pre-wrap; word-break: break-all; }
+  @keyframes tline { to { opacity: 1; } }
+  .c-cmd { color: #c9d1d9; } .c-cmd::before { content: '$ '; color: #3fb950; }
+  .c-dim { color: #6e7681; } .c-ok { color: #3fb950; } .c-err { color: #f85149; }
+  .c-info { color: #58a6ff; } .c-warn { color: #d29922; }
+
+  #buyer { display: flex; align-items: center; gap: 16px; }
+  #buyer .bw { font-size: 11px; color: #8b949e; }
+  #buyer .bb { font-size: 24px; font-weight: 700; color: #c9d1d9; margin-left: auto; }
+  #buyer .bb.unchanged { color: #d29922; }
+  #buyer .bb .u { font-size: 12px; color: #8b949e; font-weight: 400; }
+  #flash-note { font-size: 11px; color: #3fb950; opacity: 0; transition: opacity .4s; }
+
+  /* ───── subtitles ───── */
+  #subs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; text-align: center; padding: 0 60px 26px; }
+  #subs .sub {
+    display: inline-block; background: rgba(1,4,9,.88); border: 1px solid #30363d;
+    border-radius: 10px; padding: 12px 22px; font-size: 17px; font-weight: 600; color: #e6edf3;
+    opacity: 0; transform: translateY(8px); transition: all .5s ease; max-width: 1050px;
+    text-shadow: 0 1px 2px #000;
+  }
+  #subs .sub.show { opacity: 1; transform: none; }
+  #subs .sub b { color: #3fb950; }
+  #subs .sub i { color: #f85149; font-style: normal; }
+
+  /* ───── intro / outro overlays ───── */
+  .overlay {
+    position: fixed; inset: 0; z-index: 100; background: #010409;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 40px; transition: opacity .8s ease; gap: 18px;
+  }
+  .overlay.gone { opacity: 0; pointer-events: none; }
+  #intro h1 { font-size: 64px; font-weight: 900; color: #58a6ff; letter-spacing: 1px; }
+  #intro h1 span { color: #3fb950; }
+  #intro p { font-size: 19px; color: #8b949e; max-width: 820px; }
+  #intro .chips { display: flex; gap: 10px; margin-top: 8px; }
+  #intro .chips span { border: 1px solid #30363d; border-radius: 20px; padding: 5px 16px;
+    font-size: 12px; color: #c9d1d9; background: #161b22; }
+
+  #outro h1 { font-size: 46px; font-weight: 900; color: #58a6ff; }
+  #outro h1 span { color: #3fb950; }
+  #outro p.lead { font-size: 18px; color: #c9d1d9; max-width: 900px; line-height: 1.6; }
+  #proofs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; max-width: 980px; width: 100%; }
+  #proofs a {
+    display: block; background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+    padding: 12px 16px; text-decoration: none; text-align: left;
+  }
+  #proofs a:hover { border-color: #58a6ff; }
+  #proofs .p-net { font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: .5px; }
+  #proofs .p-what { font-size: 13px; color: #c9d1d9; margin: 3px 0; }
+  #proofs .p-tx { font-size: 11px; color: #58a6ff; font-family: Consolas, monospace; }
+  #outro .gh { margin-top: 16px; font-size: 15px; color: #3fb950; }
+  #outro .replay { margin-top: 6px; font-size: 12px; color: #484f58; }
+  #outro .replay kbd { background: #21262d; border: 1px solid #30363d; border-radius: 4px; padding: 1px 7px; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="logo">Arc<span>Keeper</span></div>
+  <div id="scenetitle">—</div>
+  <div id="clock">0.0s</div>
+  <div id="hint">auto-play · press R to restart</div>
+</div>
+<div id="progress"></div>
+
+<div id="stage">
+  <!-- LEFT: operator console clone -->
+  <div id="dash">
+    <div id="dash-head" class="fadein">
+      <h1>ArcKeeper</h1>
+      <span class="badge">Arc Testnet</span>
+      <span class="badge paid">x402 paywall · Base Sepolia</span>
+      <span class="mono" style="font-size:11px;color:#8b949e;">0x5704…505c</span>
+    </div>
+    <div id="snapshot-status" class="fadein"><span class="dot"></span>snapshot FRESH · ttl 300s · age <span id="age">12s</span></div>
+    <div id="banner">⚠ SNAPSHOT STALE — service refusing sales (HTTP 503) · ttl 300s · age 3601s</div>
+
+    <div id="dash-grid">
+      <div class="card dim fadein">
+        <h2>Treasury</h2>
+        <div class="big"><span id="balance">0.00</span> <small>USDC</small></div>
+        <div class="card-label">health <span id="health">—</span></div>
+        <div class="band">
+          <div class="band-bar"><div class="band-marker" id="marker" style="left:0%"></div></div>
+          <div class="band-labels"><span>floor 50.00</span><span>ceiling 75.00</span></div>
+        </div>
+      </div>
+      <div class="card fadein">
+        <h2>Decision</h2>
+        <span class="zone-chip">WARNING</span>
+        <div class="card-label" style="margin-top:8px;">Treasury healthy — inside target band</div>
+        <div class="stat-row" style="margin-top:6px;"><span class="stat-label">Recommended</span><span class="stat-value">none</span></div>
+        <div class="stat-row"><span class="stat-label">Amount</span><span class="stat-value">0.00 USDC</span></div>
+        <div class="stat-row"><span class="stat-label">Last agent action</span><span class="stat-value">sweep 5 USDC → reserve</span></div>
+      </div>
+      <div class="card fadein">
+        <h2>Paywall tiers</h2>
+        <div class="tier-row"><span class="tier-path">/signal</span><span class="tier-price">$0.001</span>
+          <div class="tier-desc">zone + recommended action — one executable decision</div></div>
+        <div class="tier-row"><span class="tier-path">/treasury</span><span class="tier-price">$0.005</span>
+          <div class="tier-desc">full treasury snapshot · band · last on-chain action</div></div>
+      </div>
+      <div class="card fadein">
+        <h2>Settlement ledger — every attempt booked</h2>
+        <table>
+          <thead><tr><th>time</th><th>tier</th><th>price</th><th>tx</th><th>status</th></tr></thead>
+          <tbody id="ledger"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: terminal + buyer wallet -->
+  <div id="right">
+    <div id="terminal" class="fadein">
+      <div id="term-head">buyer terminal — x402 client</div>
+      <div id="term-body"></div>
+    </div>
+    <div id="buyer" class="card fadein">
+      <div>
+        <div class="bw">BUYER WALLET</div>
+        <div class="bw mono">0x197c…B3ac0</div>
+        <div id="flash-note">✓ settled on-chain via x402 facilitator — payer paid no gas</div>
+      </div>
+      <div class="bb"><span id="buyerbal">1.000000</span> <span class="u">USDC</span></div>
+    </div>
+  </div>
+</div>
+
+<div id="subs"><span class="sub" id="sub"></span></div>
+
+<div id="intro" class="overlay">
+  <h1>Arc<span>Keeper</span></h1>
+  <p>A treasury agent that pays for itself — it watches the vault on Arc Testnet,
+     rebalances into the target band, and <b style="color:#3fb950;">sells its own decisions over x402</b>.</p>
+  <div class="chips">
+    <span>Arc Testnet · chain 5042002</span><span>USDC · EIP-3009</span><span>x402 · Base Sepolia settlement</span><span>refuse-before-quote</span>
+  </div>
+</div>
+
+<div id="outro" class="overlay gone">
+  <h1>Arc<span>Keeper</span></h1>
+  <p class="lead">The agent executes what it sells: every purchase settles <b style="color:#3fb950;">exactly</b> the list price
+     on-chain, the ledger books every attempt (pass or fail), and when the data feed dies the API
+     refuses <b style="color:#f85149;">before quoting</b> — no goods, no price, not one cent charged. No refund logic needed.</p>
+  <div id="proofs">
+    <a href="https://testnet.arcscan.app/tx/0xe24a56a208913fee980d339029b733309c0ddcd86de3ce4be3aae486a4b8664" target="_blank">
+      <div class="p-net">Arc Testnet</div>
+      <div class="p-what">Agent sweeps 5 USDC operational → reserve — signed, autonomous</div>
+      <div class="p-tx">0xe24a56a2…b8664</div></a>
+    <a href="https://testnet.arcscan.app/tx/0xeae89dc2c4fd37ce4c1b812776755d3f8d48d7d89abdd523d935d888b75740b3" target="_blank">
+      <div class="p-net">Arc Testnet</div>
+      <div class="p-what">Agent tops up 5 USDC reserve → operational — signed, autonomous</div>
+      <div class="p-tx">0xeae89dc2…740b3</div></a>
+    <a href="https://sepolia.basescan.org/tx/0x5bd2da0ca3aa9e7e5443250766d42227777721f5d3059ab3a48bc1b774a49bcc" target="_blank">
+      <div class="p-net">Base Sepolia · x402</div>
+      <div class="p-what">/signal purchase settled — exactly $0.001 USDC to the revenue wallet</div>
+      <div class="p-tx">0x5bd2da0c…9bcc</div></a>
+    <a href="https://sepolia.basescan.org/tx/0x7a6c7512f6763ae57977ec5c0647fcd6091a01943c1ce9d2c78493085fd93068" target="_blank">
+      <div class="p-net">Base Sepolia · x402</div>
+      <div class="p-what">/treasury purchase settled — exactly $0.005 USDC to the revenue wallet</div>
+      <div class="p-tx">0x7a6c7512…3068</div></a>
+  </div>
+  <div class="gh">github.com/jnhualu-art/rebalance-keeper · branch arc-migration</div>
+  <div class="replay">press <kbd>R</kbd> to replay</div>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const DUR = 34; // total seconds before outro freeze
+
+/* ── ledger rows (real txs) ── */
+const LEDGER = [
+  { t: "05:37:18", tier: "/signal",   price: "$0.001", tx: "0x0315bdbf…48d9", href: "#", s: "success" },
+  { t: "05:52:04", tier: "/signal",   price: "$0.001", tx: "0x5bd2da0c…9bcc",
+    href: "https://sepolia.basescan.org/tx/0x5bd2da0ca3aa9e7e5443250766d42227777721f5d3059ab3a48bc1b774a49bcc", s: "success" },
+  { t: "05:53:27", tier: "/treasury", price: "$0.005", tx: "0x7a6c7512…3068",
+    href: "https://sepolia.basescan.org/tx/0x7a6c7512f6763ae57977ec5c0647fcd6091a01943c1ce9d2c78493085fd93068", s: "success" },
+];
+function addLedger(r, isNew) {
+  const tr = document.createElement("tr");
+  if (isNew) tr.className = "newrow";
+  tr.innerHTML = `<td class="mono">${r.t}</td><td class="mono" style="color:#58a6ff">${r.tier}</td>
+    <td>${r.price}</td><td><a class="tx-link" href="${r.href}" target="_blank">${r.tx}</a></td>
+    <td class="status-success">✓ ${r.s}</td>`;
+  $("ledger").appendChild(tr);
+}
+
+/* ── counters ── */
+function tween(el, from, to, ms, fmt) {
+  const t0 = performance.now();
+  (function step(now) {
+    const p = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - p, 3);
+    el.textContent = fmt(from + (to - from) * e);
+    if (p < 1) requestAnimationFrame(step);
+  })(t0);
+}
+const fmtB = v => v.toFixed(6);
+function setBuyer(v, unchanged) {
+  $("buyerbal").textContent = fmtB(v);
+  $("buyerbal").parentElement.classList.toggle("unchanged", !!unchanged);
+}
+
+/* ── terminal ── */
+function term(lines, gap) {
+  const body = $("term-body"); body.innerHTML = "";
+  lines.forEach((L, i) => setTimeout(() => {
+    const d = document.createElement("div");
+    d.className = "tline " + L[0]; d.textContent = L[1];
+    body.appendChild(d); body.scrollTop = body.scrollHeight;
+  }, i * gap));
+}
+const delay = ms => new Promise(r => setTimeout(r, ms));
+
+/* ── subtitle ── */
+function sub(html) {
+  const s = $("sub");
+  s.classList.remove("show");
+  setTimeout(() => { s.innerHTML = html; s.classList.add("show"); }, 380);
+}
+
+/* ── dashboard state ── */
+function dashFresh() {
+  document.body.classList.remove("stale");
+  $("snapshot-status").innerHTML = '<span class="dot"></span>snapshot FRESH · ttl 300s · age <span id="age">12s</span>';
+}
+function dashStale() {
+  document.body.classList.add("stale");
+  $("snapshot-status").innerHTML = '<span class="dot"></span>STALE — snapshot expired, sales refused';
+}
+function sceneTitle(t) { $("scenetitle").textContent = t; }
+function showAll(sel) { document.querySelectorAll(sel).forEach(el => el.classList.add("show")); }
+
+/* ── master clock ── */
+let t0 = 0, raf = 0, done = false;
+function tick(now) {
+  const el = (now - t0) / 1000;
+  $("clock").textContent = el.toFixed(1) + "s";
+  $("progress").style.width = Math.min(100, el / DUR * 100) + "%";
+  if (el < DUR) raf = requestAnimationFrame(tick);
+}
+
+/* ── the timeline ── */
+async function play() {
+  cancelAnimationFrame(raf);
+  done = false;
+  // reset
+  document.body.classList.remove("stale");
+  document.querySelectorAll(".fadein").forEach(el => el.classList.remove("show"));
+  $("ledger").innerHTML = ""; $("term-body").innerHTML = "";
+  $("outro").classList.add("gone"); $("intro").classList.remove("gone");
+  $("progress").style.width = "0%"; $("clock").textContent = "0.0s";
+  setBuyer(1.0); $("flash-note").style.opacity = 0;
+  addLedger(LEDGER[0]);
+  t0 = performance.now(); raf = requestAnimationFrame(tick);
+
+  await delay(2600);                      // intro card
+  $("intro").classList.add("gone");
+
+  /* SCENE 1 — live */
+  sceneTitle("LIVE · the agent watches the treasury and sells its decisions");
+  dashFresh();
+  showAll("#dash .fadein, #right .fadein");
+  tween($("balance"), 0, 74.998958, 1800, v => v.toFixed(6));
+  tween($("health"), 0, 1.499979, 1800, v => "×" + v.toFixed(4));
+  $("marker").style.left = "99.99%";
+
+  sub("ArcKeeper watches a <b>live treasury</b> on Arc Testnet — every 10s it decides whether to rebalance into the 50–75 USDC band.");
+  await delay(4800);
+
+  sub("The exact decision it executes is what the paywall sells — <b>real data, priced in USDC</b>.");
+  term([
+    ["c-cmd", "node x402/scripts/client.js http://localhost:4021/signal"],
+    ["c-dim", "→ GET /signal   (no payment header)"],
+    ["c-warn", "← 402   {\"accepts\":[{\"scheme\":\"exact\",\"price\":\"0.001\"}]}"],
+    ["c-info", "→ signing EIP-3009 transferWithAuthorization …"],
+    ["c-dim", "→ retry with X-PAYMENT   (facilitator settles, payer pays no gas)"],
+    ["c-ok",  "← 200 OK   {\"zone\":\"WARNING\",\"health\":1.4999,\"action\":\"none\"}"],
+    ["c-ok",  "✓ settled exactly $0.001 USDC → 0xcaA7…bD76"],
+    ["c-dim", "  tx 0x5bd2da0c…9bcc   (sepolia.basescan.org)"],
+  ], 620);
+  await delay(3300);
+  setBuyer(0.995000);
+  $("flash-note").style.opacity = 1;
+  addLedger(LEDGER[1], true);
+  await delay(2400);
+
+  /* SCENE 2 — rollback */
+  sceneTitle("ROLLBACK · the data feed dies");
+  sub("Demo: freeze the snapshot — simulate the feed dying. Watch the console.");
+  await delay(3400);
+  dashStale();
+  sub("Console goes red. The API refuses <i>before quoting</i> — no payment is ever requested. Refusal is structural: <i>no refunds needed</i>.");
+  term([
+    ["c-cmd", "node x402/scripts/client.js http://localhost:4021/signal"],
+    ["c-dim", "→ GET /signal   (no payment header)"],
+    ["c-err", "← 503   {\"error\":\"signal_stale\",\"detail\":\"snapshot is 3601s old, ttl is 300s\"}"],
+    ["c-ok",  "✓ no payment was settled — buyer balance unchanged"],
+    ["c-warn", "  no goods → no quote → not one cent charged"],
+  ], 700);
+  await delay(3200);
+  setBuyer(0.995000, true);               // highlighted unchanged
+  await delay(3600);
+
+  /* SCENE 3 — recovery */
+  sceneTitle("RECOVERY · sales resume");
+  sub("The watcher republishes — <b>sales resume in the same second</b>, price unchanged.");
+  dashFresh();
+  term([
+    ["c-cmd", "node x402/scripts/client.js http://localhost:4021/treasury"],
+    ["c-warn", "← 402   price 0.005 → signing … → retry with X-PAYMENT"],
+    ["c-ok",  "← 200 OK   full treasury snapshot — fresh"],
+    ["c-ok",  "✓ settled exactly $0.005 USDC   tx 0x7a6c7512…3068"],
+  ], 700);
+  await delay(3000);
+  setBuyer(0.990000);
+  addLedger(LEDGER[2], true);
+  await delay(2800);
+
+  /* outro freeze */
+  done = true;
+  sub("");
+  $("outro").classList.remove("gone");
+}
+window.play = play;
+
+/* restart key */
+addEventListener("keydown", e => { if (e.key.toLowerCase() === "r") play(); });
+play();
+</script>
+</body>
+</html>
