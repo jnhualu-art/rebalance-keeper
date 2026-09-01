@@ -20,6 +20,7 @@
  */
 
 import http from 'node:http';
+import { readFile } from 'node:fs/promises';
 
 import {
   HTTPFacilitatorClient,
@@ -36,6 +37,7 @@ import {
   buildTreasuryPayload,
   loadSnapshot,
 } from './snapshot.js';
+import { createSettlementLedger, settlementsPathFor } from './settlements.js';
 
 const config = loadConfig();
 
@@ -91,6 +93,14 @@ for (const [routePath, tier] of Object.entries(TIERS)) {
 
 const paywalled = new x402HTTPResourceServer(resourceServer, routes);
 await paywalled.initialize();
+
+const ledger = createSettlementLedger(settlementsPathFor(config.service.snapshotPath));
+
+// The operator console serves the owner's own data back to the owner on the
+// same origin — the paywall exists for third parties, not for self-inspection.
+// Set OPERATOR_CONSOLE=0 before ever exposing this port publicly.
+const operatorConsoleEnabled = process.env.OPERATOR_CONSOLE !== '0';
+const dashboardFile = new URL('../../dashboard/index.html', import.meta.url);
 
 /**
  * Wrap a Node IncomingMessage in the adapter the x402 HTTP layer expects.
@@ -169,6 +179,56 @@ async function handle(req, res) {
     return;
   }
 
+  if (operatorConsoleEnabled && url.pathname === '/dashboard') {
+    try {
+      const html = await readFile(dashboardFile, 'utf8');
+      res.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store',
+      });
+      res.end(html);
+    } catch (err) {
+      sendJson(res, 404, { error: 'dashboard_missing', detail: String(err?.message ?? err) });
+    }
+    return;
+  }
+
+  // Operator data feed for the dashboard. This is the owner reading their own
+  // books: the full snapshot (which customers pay for) plus the settlement
+  // ledger. Never list this route as something a third party should hit.
+  if (operatorConsoleEnabled && url.pathname === '/operator/summary') {
+    let snapshot = null;
+    let snapshotError = null;
+    try {
+      const loaded = await loadSnapshot(config.service.snapshotPath, {
+        ttlSeconds: config.service.snapshotTtlSeconds,
+      });
+      snapshot = { ...loaded.snapshot, fresh: true };
+    } catch (err) {
+      snapshotError = {
+        code: SNAPSHOT_FAULTS[err?.reason]?.code ?? 'snapshot_unreadable',
+        message: err?.message ?? String(err),
+      };
+    }
+    sendJson(res, 200, {
+      network: config.evm.network,
+      payTo: config.evm.payTo,
+      facilitatorUrl: config.service.facilitatorUrl,
+      snapshotTtlSeconds: config.service.snapshotTtlSeconds,
+      tiers: Object.fromEntries(
+        Object.entries(TIERS).map(([p, tier]) => [
+          p,
+          { priceUsdc: tier.priceUsdc, description: tier.description },
+        ]),
+      ),
+      snapshot,
+      snapshotError,
+      settlements: ledger.read(15),
+      totals: ledger.totals(),
+    });
+    return;
+  }
+
   const tier = TIERS[url.pathname];
   if (!tier) {
     sendJson(res, 404, { error: 'not_found' });
@@ -237,10 +297,31 @@ async function handle(req, res) {
     if (settleResponse) {
       Object.assign(headers, paywalled.createSettlementHeaders(settleResponse));
     }
+    // Every attempt lands in the ledger, pass or fail — the chain is the
+    // source of truth, this file is how the operator sees it without one RPC
+    // per row.
+    ledger.record({
+      tier: url.pathname,
+      priceUsdc: tier.priceUsdc,
+      success: Boolean(settleResponse?.success),
+      transaction: settleResponse?.transaction ?? null,
+      network: settleResponse?.network ?? config.evm.network,
+      payer: settleResponse?.payer ?? null,
+      errorReason: settleResponse?.errorReason ?? null,
+    });
   } catch (err) {
     // The payer already proved payment, so serve the data and log loudly.
     // Withholding it would punish them for our facilitator's failure.
     console.error('[server] settlement failed:', err?.message ?? err);
+    ledger.record({
+      tier: url.pathname,
+      priceUsdc: tier.priceUsdc,
+      success: false,
+      transaction: null,
+      network: config.evm.network,
+      payer: null,
+      errorReason: err?.message ?? String(err),
+    });
   }
 
   res.writeHead(200, { ...headers, 'content-length': Buffer.byteLength(body) });
@@ -260,6 +341,12 @@ server.listen(config.service.port, () => {
   for (const [routePath, tier] of Object.entries(TIERS)) {
     console.log(
       `[server] selling http://localhost:${config.service.port}${routePath} for $${tier.priceUsdc}`,
+    );
+  }
+  if (operatorConsoleEnabled) {
+    console.log(
+      `[server] operator console: http://localhost:${config.service.port}/dashboard` +
+        ' (set OPERATOR_CONSOLE=0 to disable)',
     );
   }
 });

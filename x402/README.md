@@ -103,6 +103,23 @@ to the Sepolia wallet, and querying it on Arc returns balance 0 — which
 would be sold to customers as "treasury critical". The publisher now
 refuses to publish without an explicit Arc wallet, verified by test.
 
+## Operator console
+
+`node src/server.js` also serves a dashboard of the gateway's own books:
+
+- `http://localhost:3402/dashboard` — treasury band with the live balance
+  marked against floor/ceiling, the current decision and `last_action`
+  (with an Arc explorer link), what each tier sells and has earned, and
+  the settlement ledger (time, route, payer, tx on Base Sepolia).
+- `http://localhost:3402/operator/summary` — the JSON feed behind it.
+
+Both are free and read the owner's own data; the paywall exists for third
+parties, not for self-inspection. Every settlement attempt — pass or fail —
+is appended to `state/settlements.json` next to the snapshot, because an
+audit trail that only records wins is marketing, not accounting. If this
+port is ever exposed publicly, set `OPERATOR_CONSOLE=0` to take both routes
+down; the paid routes are unaffected either way.
+
 ## Known environment pitfalls
 
 Three non-obvious traps were hit installing these dependencies on this

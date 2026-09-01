@@ -3,248 +3,284 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RebalanceKeeper — Dashboard</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<title>ArcKeeper — Operator Console</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: #0d1117; color: #c9d1d9; min-height: 100vh; padding: 24px;
   }
-  .header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+  .header { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; flex-wrap: wrap; }
   .header h1 { font-size: 24px; color: #58a6ff; }
-  .header .badge {
+  .badge {
     background: #238636; color: #fff; padding: 4px 12px; border-radius: 12px;
     font-size: 12px; font-weight: 600;
+  }
+  .badge.paid { background: #1f6feb; }
+  .wallet { font-family: monospace; font-size: 12px; color: #8b949e; }
+  #refresh-btn {
+    background: #21262d; border: 1px solid #30363d; color: #c9d1d9;
+    padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px;
+    margin-left: auto;
+  }
+  #refresh-btn:hover { background: #30363d; }
+  .sub { color: #8b949e; font-size: 12px; margin-bottom: 20px; }
+  .sub .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+  .sub .fresh { background: #3fb950; }
+  .sub .stale { background: #f85149; }
+  .banner {
+    background: #3d1d1d; border: 1px solid #f85149; color: #f85149;
+    padding: 10px 14px; border-radius: 8px; margin-bottom: 20px; font-size: 13px;
+    max-width: 1200px;
   }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 1200px; }
   .card {
     background: #161b22; border: 1px solid #30363d; border-radius: 8px;
     padding: 20px;
   }
-  .card h2 { font-size: 14px; color: #8b949e; margin-bottom: 12px; text-transform: uppercase; }
-  .hf-value {
-    font-size: 48px; font-weight: 700; color: #3fb950;
+  .card h2 { font-size: 13px; color: #8b949e; margin-bottom: 14px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .big { font-size: 42px; font-weight: 700; color: #3fb950; }
+  .big small { font-size: 18px; color: #8b949e; font-weight: 400; }
+  .card-label { font-size: 12px; color: #8b949e; margin-top: 4px; }
+  .band { margin-top: 18px; }
+  .band-bar { position: relative; height: 10px; border-radius: 5px; overflow: visible;
+    background: linear-gradient(90deg, #f85149 0%, #d29922 30%, #3fb950 55%, #d29922 85%, #f85149 100%); opacity: 0.85; }
+  .band-marker {
+    position: absolute; top: -5px; width: 3px; height: 20px; background: #fff;
+    border-radius: 2px; box-shadow: 0 0 6px rgba(255,255,255,0.8);
   }
-  .hf-value.unsafe { color: #f85149; }
-  .hf-label { font-size: 12px; color: #8b949e; margin-top: 4px; }
-  .stat-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #21262d; }
+  .band-labels { display: flex; justify-content: space-between; font-size: 11px; color: #8b949e; margin-top: 6px; }
+  .zone-chip { display: inline-block; padding: 4px 14px; border-radius: 12px; font-size: 15px; font-weight: 700; }
+  .zone-SAFE { background: rgba(63,185,80,0.15); color: #3fb950; border: 1px solid #3fb950; }
+  .zone-WARNING { background: rgba(210,153,34,0.15); color: #d29922; border: 1px solid #d29922; }
+  .zone-DANGER { background: rgba(240,136,62,0.15); color: #f0883e; border: 1px solid #f0883e; }
+  .zone-CRITICAL { background: rgba(248,81,73,0.15); color: #f85149; border: 1px solid #f85149; }
+  .stat-row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #21262d; }
   .stat-row:last-child { border-bottom: none; }
   .stat-label { color: #8b949e; font-size: 13px; }
   .stat-value { color: #c9d1d9; font-size: 13px; font-weight: 500; }
+  .tier-row { padding: 10px 0; border-bottom: 1px solid #21262d; }
+  .tier-row:last-child { border-bottom: none; }
+  .tier-path { font-family: monospace; color: #58a6ff; font-size: 14px; font-weight: 600; }
+  .tier-price { float: right; color: #3fb950; font-weight: 700; font-size: 14px; }
+  .tier-desc { color: #8b949e; font-size: 12px; margin-top: 3px; }
+  .tier-stats { color: #8b949e; font-size: 11px; margin-top: 4px; }
+  .action-none { color: #8b949e; font-size: 13px; padding: 8px 0; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; color: #8b949e; padding: 8px; border-bottom: 1px solid #30363d; }
+  th { text-align: left; color: #8b949e; padding: 8px; border-bottom: 1px solid #30363d; font-weight: 500; }
   td { padding: 8px; border-bottom: 1px solid #21262d; }
-  .tx-link { color: #58a6ff; text-decoration: none; }
+  .tx-link { color: #58a6ff; text-decoration: none; font-family: monospace; font-size: 12px; }
   .tx-link:hover { text-decoration: underline; }
   .status-success { color: #3fb950; }
   .status-failed { color: #f85149; }
-  .chart-container { height: 200px; position: relative; }
-  .wallet { font-family: monospace; font-size: 12px; color: #8b949e; }
-  #refresh-btn {
-    background: #21262d; border: 1px solid #30363d; color: #c9d1d9;
-    padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px;
-  }
-  #refresh-btn:hover { background: #30363d; }
+  .mono { font-family: monospace; font-size: 12px; }
+  .empty { text-align: center; color: #8b949e; padding: 14px 0; }
+  .footer { max-width: 1200px; color: #484f58; font-size: 11px; margin-top: 20px; }
 </style>
 </head>
 <body>
 
 <div class="header">
-  <h1>RebalanceKeeper</h1>
-  <span class="badge">Sepolia Testnet</span>
-  <span class="wallet">Wallet: 0x1573...C531</span>
+  <h1>ArcKeeper</h1>
+  <span class="badge" id="chain-badge">Arc Testnet</span>
+  <span class="badge paid">x402 paywall · Base Sepolia</span>
+  <span class="wallet" id="wallet"></span>
   <button id="refresh-btn" onclick="loadData()">Refresh</button>
 </div>
+<div class="sub" id="snapshot-status">loading…</div>
+<div id="error-banner" class="banner" style="display:none;"></div>
 
 <div class="grid">
-  <!-- Health Factor -->
   <div class="card">
-    <h2>Health Factor</h2>
-    <div class="hf-value" id="hf-value">—</div>
-    <div class="hf-label" id="hf-label">Threshold: 1.50</div>
-    <div class="chart-container" style="margin-top: 16px;">
-      <canvas id="hf-chart"></canvas>
+    <h2>Treasury</h2>
+    <div class="big"><span id="balance">—</span> <small>USDC</small></div>
+    <div class="card-label" id="health-line">health —</div>
+    <div class="band">
+      <div class="band-bar"><div class="band-marker" id="band-marker" style="left:0%"></div></div>
+      <div class="band-labels"><span>floor <span id="floor">—</span></span><span>ceiling <span id="ceiling">—</span></span></div>
     </div>
   </div>
 
-  <!-- Position Summary -->
   <div class="card">
-    <h2>Position</h2>
-    <div class="stat-row">
-      <span class="stat-label">Total Collateral (base)</span>
-      <span class="stat-value" id="collateral">—</span>
+    <h2>Decision</h2>
+    <div><span class="zone-chip" id="zone">—</span></div>
+    <div class="card-label" id="reason" style="margin-top:10px;">—</div>
+    <div class="stat-row" style="margin-top:10px;">
+      <span class="stat-label">Recommended</span>
+      <span class="stat-value" id="action">—</span>
     </div>
     <div class="stat-row">
-      <span class="stat-label">Total Debt (base)</span>
-      <span class="stat-value" id="debt">—</span>
-    </div>
-    <div class="stat-row">
-      <span class="stat-label">Available Borrows (base)</span>
-      <span class="stat-value" id="borrows">—</span>
-    </div>
-    <div class="stat-row">
-      <span class="stat-label">LTV</span>
-      <span class="stat-value" id="ltv">—</span>
-    </div>
-    <div class="stat-row">
-      <span class="stat-label">Liquidation Threshold</span>
-      <span class="stat-value" id="lt">—</span>
-    </div>
-    <div class="stat-row">
-      <span class="stat-label">Pool Address</span>
-      <span class="stat-value" style="font-family:monospace;font-size:11px;">
-        0x6Ae4...8951
-      </span>
+      <span class="stat-label">Amount</span>
+      <span class="stat-value" id="amount">—</span>
     </div>
   </div>
 
-  <!-- Rebalance History -->
+  <div class="card">
+    <h2>Last Agent Action</h2>
+    <div id="last-action"><div class="action-none">no transfer executed yet</div></div>
+  </div>
+
+  <div class="card">
+    <h2>x402 API — what the agent sells</h2>
+    <div id="tiers">—</div>
+    <div class="stat-row" style="margin-top:10px;">
+      <span class="stat-label">Total settled</span>
+      <span class="stat-value" id="revenue">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Payout address</span>
+      <span class="stat-value mono" id="payto">—</span>
+    </div>
+  </div>
+
   <div class="card" style="grid-column: 1 / -1;">
-    <h2>Rebalance Audit Trail</h2>
+    <h2>Settlement Ledger — real x402 payments received</h2>
     <table>
       <thead>
-        <tr>
-          <th>Timestamp</th>
-          <th>Trigger</th>
-          <th>Action</th>
-          <th>TX Hash</th>
-          <th>Status</th>
-        </tr>
+        <tr><th>Time</th><th>Route</th><th>Charged</th><th>Status</th><th>Payer</th><th>TX (Base Sepolia)</th></tr>
       </thead>
-      <tbody id="audit-body">
-        <tr><td colspan="5" style="text-align:center;color:#8b949e;">No triggers yet</td></tr>
+      <tbody id="ledger-body">
+        <tr><td colspan="6" class="empty">loading…</td></tr>
       </tbody>
     </table>
   </div>
 </div>
 
+<div class="footer">
+  Operator console — served by the x402 gateway itself (<span class="mono">/operator/summary</span>, free, localhost-only by convention).
+  Customer-facing routes stay behind the paywall: <span class="mono">/signal</span> and <span class="mono">/treasury</span>.
+</div>
+
 <script>
-const THRESHOLD = 1.5;
+const BASE_SEPOLIA_TX = 'https://sepolia.basescan.org/tx/';
+const fmtUsdc = (n) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 6 });
 
-// Demo data — loads REAL on-chain demo first (logs/real_demo_dashboard.json),
-// then synthetic demo (logs/demo_history.json), then inline fallback.
-// In production, replace with fetch('/api/status')
-let sampleData = null;
+function shortAddr(a) { return a ? a.slice(0, 8) + '…' + a.slice(-6) : '—'; }
+function shortTx(t) { return t ? t.slice(0, 14) + '…' : '—'; }
 
-async function loadData() {
-  // Try real on-chain demo, then synthetic, then inline sample
-  try {
-    const resp = await fetch('../logs/real_demo_dashboard.json');
-    if (resp.ok) {
-      sampleData = await resp.json();
-      return;
-    }
-  } catch (e) { /* fall through */ }
-  try {
-    const resp = await fetch('../logs/demo_history.json');
-    if (resp.ok) {
-      sampleData = await resp.json();
-    } else {
-      sampleData = getInlineData();
-    }
-  } catch (e) {
-    sampleData = getInlineData();
+function renderLastAction(la) {
+  const box = document.getElementById('last-action');
+  if (!la) { box.innerHTML = '<div class="action-none">no transfer executed yet</div>'; return; }
+  if (la.status === 'error') {
+    box.innerHTML = `
+      <div class="zone-chip zone-CRITICAL">${la.type}</div>
+      <div class="card-label" style="margin-top:10px;color:#f85149;">${la.error ?? 'execution failed'}</div>`;
+    return;
   }
-
-  const d = sampleData;
-
-  // Health Factor
-  const hfEl = document.getElementById('hf-value');
-  hfEl.textContent = d.healthFactor.toFixed(4);
-  hfEl.className = 'hf-value' + (d.healthFactor < THRESHOLD ? ' unsafe' : '');
-
-  // Position
-  document.getElementById('collateral').textContent = d.totalCollateralBase;
-  document.getElementById('debt').textContent = d.totalDebtBase;
-  document.getElementById('borrows').textContent = d.availableBorrowsBase;
-  document.getElementById('ltv').textContent = (parseInt(d.ltv)/100).toFixed(2) + '%';
-  document.getElementById('lt').textContent = (parseInt(d.liquidationThreshold)/100).toFixed(2) + '%';
-
-  // Chart
-  const ctx = document.getElementById('hf-chart').getContext('2d');
-  if (hfChart) hfChart.destroy();
-  hfChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: d.history.map(h => h.t),
-      datasets: [{
-        label: 'Health Factor',
-        data: d.history.map(h => h.hf),
-        borderColor: '#58a6ff',
-        backgroundColor: 'rgba(88,166,255,0.1)',
-        fill: true,
-        tension: 0.3,
-      }, {
-        label: 'Threshold',
-        data: d.history.map(() => THRESHOLD),
-        borderColor: '#f85149',
-        borderDash: [5, 5],
-        fill: false,
-        pointRadius: 0,
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        y: { beginAtZero: false, min: 1.0, max: 2.5, grid: { color: '#21262d' } },
-        x: { grid: { color: '#21262d' } },
-      },
-    }
-  });
-
-  // Audit trail
-  const body = document.getElementById('audit-body');
-  if (d.triggers.length === 0) {
-    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#8b949e;">No triggers yet</td></tr>';
-  } else {
-    body.innerHTML = d.triggers.map(t => `
-      <tr>
-        <td>${t.timestamp}</td>
-        <td>${t.trigger}</td>
-        <td>${t.action}</td>
-        <td><a class="tx-link" href="https://sepolia.etherscan.io/tx/${t.txHash}" target="_blank">${t.txHash.substring(0,18)}...</a></td>
-        <td class="status-${t.status}">${t.status}</td>
-      </tr>
-    `).join('');
-  }
+  const statusChip = la.status === 'success'
+    ? '<span class="status-success">success</span>'
+    : la.status === 'dry_run' ? '<span style="color:#d29922;">dry run</span>'
+    : '<span style="color:#8b949e;">' + (la.status ?? 'unknown') + '</span>';
+  const txLine = la.tx_hash
+    ? `<a class="tx-link" href="https://testnet.arcscan.app/tx/${la.tx_hash}" target="_blank">${shortTx(la.tx_hash)}</a>`
+    : '<span class="mono" style="color:#8b949e;">no tx</span>';
+  box.innerHTML = `
+    <div class="stat-row"><span class="stat-label">Type</span><span class="stat-value">${la.type}</span></div>
+    <div class="stat-row"><span class="stat-label">Amount</span><span class="stat-value">${fmtUsdc(la.amount_usdc ?? 0)} USDC</span></div>
+    <div class="stat-row"><span class="stat-label">Status</span><span class="stat-value">${statusChip}</span></div>
+    <div class="stat-row"><span class="stat-label">TX (Arc)</span><span class="stat-value">${txLine}</span></div>`;
 }
 
-let hfChart = null;
+function renderTiers(tiers, totals) {
+  const box = document.getElementById('tiers');
+  box.innerHTML = Object.entries(tiers).map(([p, t]) => {
+    const sold = totals?.byTier?.[p];
+    return `
+    <div class="tier-row">
+      <span class="tier-path">GET ${p}</span>
+      <span class="tier-price">$${t.priceUsdc}</span>
+      <div class="tier-desc">${t.description}</div>
+      <div class="tier-stats">${sold ? sold.sales + ' sales · $' + sold.revenueUsdc + ' settled' : 'no sales yet'}</div>
+    </div>`;
+  }).join('');
+}
 
-function getInlineData() {
-  return {
-    healthFactor: 2.2667,
-    totalCollateralBase: "8500",
-    totalDebtBase: "3000",
-    availableBorrowsBase: "2950",
-    ltv: "3529",
-    liquidationThreshold: "8000",
-    history: [
-      { t: "09:00", hf: 2.56 }, { t: "09:02", hf: 2.556 },
-      { t: "09:04", hf: 2.568 }, { t: "09:06", hf: 2.558 },
-      { t: "09:08", hf: 2.564 }, { t: "09:10", hf: 2.48 },
-      { t: "09:12", hf: 2.32 }, { t: "09:14", hf: 2.16 },
-      { t: "09:16", hf: 2.0 }, { t: "09:18", hf: 1.84 },
-      { t: "09:20", hf: 1.867 }, { t: "09:22", hf: 1.689 },
-      { t: "09:24", hf: 1.75 }, { t: "09:26", hf: 1.6 },
-      { t: "09:28", hf: 1.45 }, { t: "09:30", hf: 2.0 },
-      { t: "09:32", hf: 2.067 }, { t: "09:34", hf: 2.133 },
-      { t: "09:36", hf: 2.2 }, { t: "09:38", hf: 2.267 },
-    ],
-    triggers: [
-      { timestamp: "2026-07-17T09:00:00Z", trigger: "position_setup", action: "supply 0.05 WETH + borrow 50 USDC", txHash: "0xa1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef1234", status: "success" },
-      { timestamp: "2026-07-17T09:18:00Z", trigger: "health_factor=1.84 (WARNING, 5 declines)", action: "repay 5.00 USDC (10%)", txHash: "0xc3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678", status: "success" },
-      { timestamp: "2026-07-17T09:28:00Z", trigger: "health_factor=1.45 (DANGER)", action: "repay 10.00 USDC (25%)", txHash: "0xd4e5f6789012345678901234567890abcdef1234567890abcdef12345678901", status: "success" },
-    ],
-  };
+function renderLedger(rows) {
+  const body = document.getElementById('ledger-body');
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="6" class="empty">No settlements yet — buy one via <span class="mono">node x402/src/client.js /signal</span></td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map(r => `
+    <tr>
+      <td>${(r.at ?? '').replace('T', ' ').slice(0, 19)}</td>
+      <td class="mono">${r.tier}</td>
+      <td>$${r.priceUsdc}</td>
+      <td class="status-${r.success ? 'success' : 'failed'}">${r.success ? 'settled' : 'failed'}</td>
+      <td class="mono">${shortAddr(r.payer)}</td>
+      <td>${r.transaction
+        ? `<a class="tx-link" href="${BASE_SEPOLIA_TX}${r.transaction}" target="_blank">${shortTx(r.transaction)}</a>`
+        : '<span style="color:#8b949e;">—</span>'}</td>
+    </tr>`).join('');
+}
+
+async function loadData() {
+  let d;
+  try {
+    const resp = await fetch('/operator/summary');
+    if (!resp.ok) throw new Error('operator/summary HTTP ' + resp.status);
+    d = await resp.json();
+  } catch (err) {
+    document.getElementById('error-banner').style.display = 'block';
+    document.getElementById('error-banner').textContent =
+      'Cannot reach the gateway. Start it with: cd x402 && node src/server.js  (' + err.message + ')';
+    return;
+  }
+  document.getElementById('error-banner').style.display = 'none';
+
+  // Snapshot freshness strip
+  const statusEl = document.getElementById('snapshot-status');
+  if (d.snapshot) {
+    const age = Math.max(0, Math.round((Date.now() - new Date(d.snapshot.generated_at)) / 1000));
+    const fresh = age <= d.snapshotTtlSeconds;
+    statusEl.innerHTML =
+      `<span class="dot ${fresh ? 'fresh' : 'stale'}"></span>` +
+      `snapshot ${age}s old · block ${d.snapshot.block_number?.toLocaleString('en-US')} · ` +
+      `${d.snapshot.chain?.name} (chainId ${d.snapshot.chain?.id}) · published ${d.snapshot.generated_at}`;
+  } else {
+    statusEl.innerHTML = '<span class="dot stale"></span>no snapshot published';
+  }
+
+  if (d.snapshotError) {
+    const b = document.getElementById('error-banner');
+    b.style.display = 'block';
+    b.textContent = 'Snapshot unavailable (' + d.snapshotError.code + '): ' + d.snapshotError.message;
+  }
+
+  const s = d.snapshot;
+  document.getElementById('wallet').textContent = 'Agent wallet: ' + shortAddr(s?.wallet);
+  document.getElementById('chain-badge').textContent = s?.chain?.name ?? 'Arc Testnet';
+
+  if (s?.treasury) {
+    const t = s.treasury;
+    document.getElementById('balance').textContent = fmtUsdc(t.usdc_balance);
+    document.getElementById('health-line').textContent = 'health ' + (t.health ?? '—') +
+      ' · native ' + fmtUsdc(t.native_usdc_balance) + ' USDC';
+    document.getElementById('floor').textContent = fmtUsdc(t.floor_usdc);
+    document.getElementById('ceiling').textContent = fmtUsdc(t.ceiling_usdc);
+    const span = (t.ceiling_usdc ?? 0) - (t.floor_usdc ?? 0);
+    const pos = span > 0 ? ((t.usdc_balance - t.floor_usdc) / span) * 100 : 0;
+    document.getElementById('band-marker').style.left = Math.min(100, Math.max(0, pos)) + '%';
+  }
+  if (s?.decision) {
+    const zone = s.decision.zone ?? '—';
+    const zoneEl = document.getElementById('zone');
+    zoneEl.textContent = zone;
+    zoneEl.className = 'zone-chip zone-' + zone;
+    document.getElementById('reason').textContent = s.decision.reason ?? '';
+    document.getElementById('action').textContent = s.decision.action ?? '—';
+    document.getElementById('amount').textContent =
+      s.decision.amount_usdc ? fmtUsdc(s.decision.amount_usdc) + ' USDC' : '—';
+  }
+  renderLastAction(s?.last_action ?? null);
+  renderTiers(d.tiers ?? {}, d.totals);
+  document.getElementById('revenue').textContent = '$' + (d.totals?.revenueUsdc ?? 0) + ' USDC (' + (d.totals?.totalSales ?? 0) + ' sales)';
+  document.getElementById('payto').textContent = shortAddr(d.payto);
+  renderLedger(d.settlements ?? []);
 }
 
 loadData();
-// Auto-refresh every 30s
-setInterval(loadData, 30000);
+setInterval(loadData, 15000);
 </script>
 </body>
 </html>
