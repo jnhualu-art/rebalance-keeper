@@ -71,12 +71,12 @@ The treasury lives on Arc; the paywall settles on Base Sepolia through the x402 
 ## 🚀 Quick Start
 
 ```bash
-git clone git@github.com:jnhualu-art/rebalance-keeper.git
+git clone https://github.com/jnhualu-art/rebalance-keeper.git
 cd rebalance-keeper
 
 # Agent + snapshot publisher
 python -m src.main arc-status
-.venv/Scripts/python.exe scripts/export_snapshot.py --watch --interval 10
+python scripts/export_snapshot.py --watch --interval 10
 
 # Gateway + operator console
 cd x402 && cp .env.example .env && node src/server.js
@@ -102,7 +102,7 @@ node src/client.js /treasury    # full position, $0.005
 
 - [ ] Arc-native x402 settlement (awaiting an Arc facilitator — gateway change is one URL)
 - [ ] Second buyer persona: the agent *spends* x402 to buy oracle prices before rebalancing (machine-to-machine economy)
-- [ ] Policy upgrade:apy-aware floor (hold less when reserve yield > operational need)
+- [ ] Policy upgrade: APY-aware floor (hold less when reserve yield > operational need)
 - [ ] Multi-treasury: one gateway, N agents, per-agent pricing
 
 ## 🔗 Links
