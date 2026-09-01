@@ -10,7 +10,7 @@ An on-chain agent that manages a USDC treasury on Arc with zero human interventi
 
 ## 🎬 Demo Video
 
-https://youtu.be/8dwgH1LVzJU
+https://youtu.be/8dwgH1LVzjU
 
 ## 🎯 Problem Statement
 
