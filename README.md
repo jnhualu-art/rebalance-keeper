@@ -63,6 +63,31 @@ node src/client.js /signal     # 402 → sign → settle → data, $0.001
 node src/client.js /treasury   # full position, $0.005
 ```
 
+## Running on Hedera (x402 via Blocky402)
+
+The same gateway serves the **Hedera Agentic Payments** track by switching the
+settlement rail. Set `CHAIN=hedera` and the 402 quote is emitted for
+`hedera:testnet` with the USDC HTS token `0.0.429274`; the facilitator is forced
+to Blocky402's testnet endpoint (`api.testnet.blocky402.com`) — no other
+facilitator can settle Hedera payments.
+
+```bash
+# Seller (Terminal 2 above, Hedera rail)
+CHAIN=hedera node src/server.js
+
+# Buyer — for a real cross-account payment, use a dedicated buyer account:
+node setup_hedera_buyer.mjs            # creates + associates a buyer account
+# fund it with test USDC at https://faucet.circle.com (Hedera Testnet), then:
+HEDERA_BUYER_ACCOUNT_ID=0.0.NEW  HEDERA_BUYER_PRIVATE_KEY=0x...  CHAIN=hedera \
+  node src/client.js /signal
+```
+
+Requirements for a live paid call on Hedera: the **buyer** account must hold its
+ECDSA private key, be associated with USDC `0.0.429274`, and carry a test-USDC
+balance. The seller (`HEDERA_ACCOUNT_ID`) only receives — it does **not** sign,
+so its private key is not needed for settlement; Blocky402 co-signs as fee payer,
+so the buyer needs no HBAR either.
+
 The agent itself:
 
 ```bash

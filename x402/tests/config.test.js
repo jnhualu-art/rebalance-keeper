@@ -102,3 +102,42 @@ test('an out-of-range spend ceiling is rejected', () => {
     process.env.MAX_PAYMENT_USDC = original;
   }
 });
+
+test('a distinct Hedera buyer account is parsed and redacted', () => {
+  const buyerId = '0.0.9999999';
+  const buyerKey = '0x' + 'cd'.repeat(32);
+  const prevChain = process.env.CHAIN;
+  const prevBuyerId = process.env.HEDERA_BUYER_ACCOUNT_ID;
+  const prevBuyerKey = process.env.HEDERA_BUYER_PRIVATE_KEY;
+  try {
+    process.env.CHAIN = 'hedera';
+    process.env.HEDERA_BUYER_ACCOUNT_ID = buyerId;
+    process.env.HEDERA_BUYER_PRIVATE_KEY = buyerKey;
+    const config = loadConfig();
+    assert.equal(config.hederaBuyer.accountId, buyerId);
+    assert.equal(config.hederaBuyer.privateKey, buyerKey);
+    // redact must expose the buyer id but never the key
+    assert.equal(redact(config).hederaBuyer.accountId, buyerId);
+    assert.ok(!('privateKey' in (redact(config).hederaBuyer ?? {})));
+  } finally {
+    process.env.CHAIN = prevChain;
+    process.env.HEDERA_BUYER_ACCOUNT_ID = prevBuyerId;
+    process.env.HEDERA_BUYER_PRIVATE_KEY = prevBuyerKey;
+  }
+});
+
+test('a partial Hedera buyer config is rejected', () => {
+  const prevChain = process.env.CHAIN;
+  const prevId = process.env.HEDERA_BUYER_ACCOUNT_ID;
+  const prevKey = process.env.HEDERA_BUYER_PRIVATE_KEY;
+  try {
+    process.env.CHAIN = 'hedera';
+    process.env.HEDERA_BUYER_ACCOUNT_ID = '0.0.8888888';
+    delete process.env.HEDERA_BUYER_PRIVATE_KEY;
+    assert.throws(() => loadConfig(), /must be set together/);
+  } finally {
+    process.env.CHAIN = prevChain;
+    process.env.HEDERA_BUYER_ACCOUNT_ID = prevId;
+    process.env.HEDERA_BUYER_PRIVATE_KEY = prevKey;
+  }
+});

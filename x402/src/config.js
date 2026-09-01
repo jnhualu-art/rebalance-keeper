@@ -20,6 +20,15 @@ const EVM_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 const USDC_DECIMALS = 6;
 const USDC_SCALE = 10n ** BigInt(USDC_DECIMALS);
 
+// Hedera testnet USDC (HTS) token id — confirmed via the x402 official docs,
+// the Hedera reference fork (hedera-dev/x402-hedera) and the Blocky402
+// testnet /supported response. Hedera mainnet USDC would differ; this build
+// targets the ETHGlobal Hedera testnet bounty.
+const HEDERA_USDC_TOKEN = '0.0.429274';
+// Blocky402 testnet facilitator fee-payer account (from GET /supported). The
+// facilitator co-signs as fee payer, so a USDC-only payer needs no HBAR.
+const HEDERA_TESTNET_FEE_PAYER = '0.0.7162784';
+
 // Default location of the snapshot published by scripts/export_snapshot.py.
 // Resolved against this file so the service works from any working directory.
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -138,6 +147,11 @@ export function loadConfig() {
     );
   }
 
+  const chain = (process.env.CHAIN?.trim() || 'evm').toLowerCase();
+  if (chain !== 'evm' && chain !== 'hedera') {
+    throw new ConfigError(`CHAIN must be evm or hedera, got "${chain}"`);
+  }
+
   const network = process.env.HEDERA_NETWORK?.trim() || 'hedera:testnet';
   if (network !== 'hedera:testnet' && network !== 'hedera:mainnet') {
     throw new ConfigError(
@@ -145,7 +159,7 @@ export function loadConfig() {
     );
   }
 
-  const payTo = assertAccountId(
+  const hederaPayTo = assertAccountId(
     process.env.PAY_TO?.trim() || accountId,
     'PAY_TO',
   );
@@ -162,20 +176,47 @@ export function loadConfig() {
     'MAX_PAYMENT_USDC',
   );
 
+  if (chain === 'evm' && !process.env.EVM_PAY_TO?.trim()) {
+    throw new ConfigError(
+      'CHAIN=evm requires EVM_PAY_TO. Set CHAIN=hedera to use the Hedera rail.',
+    );
+  }
+
+  const evm = process.env.EVM_PAY_TO?.trim()
+    ? {
+        privateKey,
+        rpcUrl: process.env.EVM_RPC_URL?.trim() || 'https://rpc-amoy.polygon.technology',
+        network: process.env.EVM_NETWORK?.trim() || 'eip155:80002',
+        payTo: assertEvmAddress(process.env.EVM_PAY_TO.trim(), 'EVM_PAY_TO'),
+      }
+    : null;
+
+  // Optional distinct payer account for the buyer side. When set, the client
+  // signs payments as this account instead of the seller (config.hedera), so a
+  // live demo shows a real cross-account transfer rather than a self-payment.
+  const buyerAccountId = process.env.HEDERA_BUYER_ACCOUNT_ID?.trim() || null;
+  const buyerPrivateKey = process.env.HEDERA_BUYER_PRIVATE_KEY?.trim() || null;
+  let hederaBuyer = null;
+  if (buyerAccountId && buyerPrivateKey) {
+    hederaBuyer = {
+      accountId: assertAccountId(buyerAccountId, 'HEDERA_BUYER_ACCOUNT_ID'),
+      privateKey: buyerPrivateKey,
+    };
+  } else if (buyerAccountId || buyerPrivateKey) {
+    throw new ConfigError(
+      'HEDERA_BUYER_ACCOUNT_ID and HEDERA_BUYER_PRIVATE_KEY must be set together.',
+    );
+  }
+
   return {
-    hedera: { accountId, privateKey, network },
+    hedera: { accountId, privateKey, network, payTo: hederaPayTo },
     // EVM verification path. A Hedera ECDSA key is an secp256k1 key, so it
     // signs EVM transactions unchanged; only the payout address differs.
     // Left null when EVM_PAY_TO is unset so Hedera-only runs still boot.
-    evm: process.env.EVM_PAY_TO?.trim()
-      ? {
-          privateKey,
-          rpcUrl: process.env.EVM_RPC_URL?.trim() || 'https://rpc-amoy.polygon.technology',
-          network: process.env.EVM_NETWORK?.trim() || 'eip155:80002',
-          payTo: assertEvmAddress(process.env.EVM_PAY_TO.trim(), 'EVM_PAY_TO'),
-        }
-      : null,
+    evm,
+    hederaBuyer,
     service: {
+      chain,
       port: parsePort(process.env.SERVICE_PORT ?? '3402'),
       // Kept as the cheap-tier price: PRICE_USDC is the historical name and
       // existing tests assert against it.
@@ -185,8 +226,19 @@ export function loadConfig() {
       treasuryPriceUsdc: baseUnitsToUsdc(treasuryPriceUnits),
       snapshotPath: process.env.SNAPSHOT_PATH?.trim() || DEFAULT_SNAPSHOT_PATH,
       snapshotTtlSeconds: parseTtlSeconds(process.env.SNAPSHOT_TTL_SECONDS ?? '300'),
-      payTo,
-      facilitatorUrl: process.env.FACILITATOR_URL?.trim() || 'https://blocky402.com',
+      // The active settlement chain decides the payout address, network id,
+      // asset and (for Hedera) the facilitator fee-payer carried in the 402.
+      payTo: chain === 'hedera' ? hederaPayTo : evm?.payTo ?? null,
+      network: chain === 'hedera' ? network : (evm?.network ?? 'eip155:84532'),
+      asset: chain === 'hedera' ? HEDERA_USDC_TOKEN : null,
+      extra: chain === 'hedera' ? { feePayer: HEDERA_TESTNET_FEE_PAYER } : {},
+      // Hedera can ONLY settle through Blocky402's facilitator, so the URL is
+      // forced for that chain (the env override below is ignored). EVM uses the
+      // public x402 facilitator unless FACILITATOR_URL pins a custom one.
+      facilitatorUrl:
+        chain === 'hedera'
+          ? 'https://api.testnet.blocky402.com'
+          : process.env.FACILITATOR_URL?.trim() || 'https://x402.org/facilitator',
     },
     client: {
       maxPaymentUnits,
@@ -203,12 +255,18 @@ export function loadConfig() {
 export function redact(config) {
   return {
     hedera: { accountId: config.hedera.accountId, network: config.hedera.network },
+    hederaBuyer: config.hederaBuyer
+      ? { accountId: config.hederaBuyer.accountId }
+      : null,
     service: {
+      chain: config.service.chain,
       port: config.service.port,
       priceUsdc: config.service.priceUsdc,
       treasuryPriceUsdc: config.service.treasuryPriceUsdc,
       snapshotPath: config.service.snapshotPath,
       snapshotTtlSeconds: config.service.snapshotTtlSeconds,
+      network: config.service.network,
+      asset: config.service.asset,
       payTo: config.service.payTo,
       facilitatorUrl: config.service.facilitatorUrl,
     },

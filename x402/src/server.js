@@ -4,6 +4,12 @@
  * Sells the ArcKeeper treasury position behind an x402 paywall and settles
  * through an x402 facilitator.
  *
+ * Settlement chain is selectable at boot via CHAIN=evm|hedera:
+ *   - evm     → EIP-3009 USDC on an EVM chain (default: Base Sepolia)
+ *   - hedera  → HTS USDC on Hedera testnet via the Blocky402 facilitator
+ * The HTTP/paywall layer is identical; only the signed settlement rail and
+ * the asset naming differ.
+ *
  * Audit properties:
  *   - Price is declared by this server in the 402 response. No part of the
  *     request can influence it.
@@ -28,6 +34,7 @@ import {
   x402ResourceServer,
 } from '@x402/core/server';
 import { registerExactEvmScheme } from '@x402/evm/exact/server';
+import { ExactHederaScheme as ExactHederaServerScheme } from '@x402/hedera/exact/server';
 
 import { loadConfig, redact } from './config.js';
 import {
@@ -41,16 +48,19 @@ import { createSettlementLedger, settlementsPathFor } from './settlements.js';
 
 const config = loadConfig();
 
-if (!config.evm) {
-  throw new Error(
-    'EVM_PAY_TO is not set. This service needs an EVM payout address. ' +
-      'Copy .env.example to .env and fill it in.',
-  );
-}
-
 const facilitator = new HTTPFacilitatorClient({ url: config.service.facilitatorUrl });
 const resourceServer = new x402ResourceServer(facilitator);
-registerExactEvmScheme(resourceServer);
+
+// Register the scheme for the active settlement chain. The x402 HTTP layer is
+// chain-agnostic; only the signed settlement rail differs. For Hedera there is
+// no prebuilt registerExactHederaScheme helper, so we instantiate and register
+// the class directly. The facilitator's /supported response supplies the
+// fee-payer, so no extra config is needed here.
+if (config.service.chain === 'hedera') {
+  resourceServer.register(config.service.network, new ExactHederaServerScheme());
+} else {
+  registerExactEvmScheme(resourceServer);
+}
 
 /**
  * The catalogue.
@@ -78,12 +88,11 @@ for (const [routePath, tier] of Object.entries(TIERS)) {
     accepts: {
       scheme: 'exact',
       price: `$${tier.priceUsdc}`,
-      network: config.evm.network,
-      payTo: config.evm.payTo,
-      // How long the signed authorization stays valid. It has to cover
-      // verification *and* the facilitator's on-chain settlement, not just
-      // this server's handling time. A window that is too short surfaces as a
-      // rejected signature rather than as an obvious timeout.
+      network: config.service.network,
+      payTo: config.service.payTo,
+      // Hedera settlement names the HTS USDC token explicitly; the EVM rail
+      // defaults to its canonical USDC, so the field is Hedera-only.
+      ...(config.service.chain === 'hedera' ? { asset: config.service.asset } : {}),
       maxTimeoutSeconds: 600,
     },
     description: tier.description,
@@ -170,7 +179,9 @@ async function handle(req, res) {
   if (url.pathname === '/health') {
     sendJson(res, 200, {
       status: 'ok',
-      network: config.evm.network,
+      chain: config.service.chain,
+      network: config.service.network,
+      asset: config.service.asset,
       tiers: Object.fromEntries(
         Object.entries(TIERS).map(([p, tier]) => [p, { priceUsdc: tier.priceUsdc }]),
       ),
@@ -211,8 +222,9 @@ async function handle(req, res) {
       };
     }
     sendJson(res, 200, {
-      network: config.evm.network,
-      payTo: config.evm.payTo,
+      chain: config.service.chain,
+      network: config.service.network,
+      payTo: config.service.payTo,
       facilitatorUrl: config.service.facilitatorUrl,
       snapshotTtlSeconds: config.service.snapshotTtlSeconds,
       tiers: Object.fromEntries(
@@ -305,7 +317,7 @@ async function handle(req, res) {
       priceUsdc: tier.priceUsdc,
       success: Boolean(settleResponse?.success),
       transaction: settleResponse?.transaction ?? null,
-      network: settleResponse?.network ?? config.evm.network,
+      network: settleResponse?.network ?? config.service.network,
       payer: settleResponse?.payer ?? null,
       errorReason: settleResponse?.errorReason ?? null,
     });
@@ -318,7 +330,7 @@ async function handle(req, res) {
       priceUsdc: tier.priceUsdc,
       success: false,
       transaction: null,
-      network: config.evm.network,
+      network: config.service.network,
       payer: null,
       errorReason: err?.message ?? String(err),
     });
