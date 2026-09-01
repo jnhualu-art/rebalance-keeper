@@ -238,7 +238,8 @@ async function loadData() {
       `snapshot ${age}s old · block ${d.snapshot.block_number?.toLocaleString('en-US')} · ` +
       `${d.snapshot.chain?.name} (chainId ${d.snapshot.chain?.id}) · published ${d.snapshot.generated_at}`;
   } else {
-    statusEl.innerHTML = '<span class="dot stale"></span>no snapshot published';
+    statusEl.innerHTML =
+      '<span class="dot stale"></span>snapshot stale or missing — service is refusing sales (503)';
   }
 
   if (d.snapshotError) {
