@@ -10,12 +10,20 @@
  *   4. A redacted view is exported for logging; never log loadConfig() output.
  */
 
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import 'dotenv/config';
 
 const HEDERA_ACCOUNT_RE = /^\d+\.\d+\.\d+$/;
 const EVM_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 const USDC_DECIMALS = 6;
 const USDC_SCALE = 10n ** BigInt(USDC_DECIMALS);
+
+// Default location of the snapshot published by scripts/export_snapshot.py.
+// Resolved against this file so the service works from any working directory.
+const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const DEFAULT_SNAPSHOT_PATH = path.join(MODULE_DIR, '..', 'state', 'treasury-snapshot.json');
 
 export class ConfigError extends Error {
   constructor(message) {
@@ -87,6 +95,21 @@ function parseTimeout(raw) {
   return ms;
 }
 
+/**
+ * How old a published snapshot may be before the gateway refuses to sell it.
+ * Selling a stale position is worse than refusing, so the default is tight and
+ * the value is validated rather than silently coerced.
+ */
+function parseTtlSeconds(raw) {
+  const seconds = Number(raw);
+  if (!Number.isInteger(seconds) || seconds < 10 || seconds > 86_400) {
+    throw new ConfigError(
+      `SNAPSHOT_TTL_SECONDS must be an integer 10-86400, got "${raw}"`,
+    );
+  }
+  return seconds;
+}
+
 function assertAccountId(value, label) {
   if (!HEDERA_ACCOUNT_RE.test(value)) {
     throw new ConfigError(
@@ -128,6 +151,12 @@ export function loadConfig() {
   );
 
   const priceUnits = parsePositiveAmount(process.env.PRICE_USDC ?? '0.001', 'PRICE_USDC');
+  // The full position costs more than the advice. A single flat price would
+  // leave money on the table and give buyers no reason to prefer the cheap tier.
+  const treasuryPriceUnits = parsePositiveAmount(
+    process.env.PRICE_TREASURY_USDC ?? '0.005',
+    'PRICE_TREASURY_USDC',
+  );
   const maxPaymentUnits = parsePositiveAmount(
     process.env.MAX_PAYMENT_USDC ?? '0.05',
     'MAX_PAYMENT_USDC',
@@ -148,8 +177,14 @@ export function loadConfig() {
       : null,
     service: {
       port: parsePort(process.env.SERVICE_PORT ?? '3402'),
+      // Kept as the cheap-tier price: PRICE_USDC is the historical name and
+      // existing tests assert against it.
       priceUnits,
       priceUsdc: baseUnitsToUsdc(priceUnits),
+      treasuryPriceUnits,
+      treasuryPriceUsdc: baseUnitsToUsdc(treasuryPriceUnits),
+      snapshotPath: process.env.SNAPSHOT_PATH?.trim() || DEFAULT_SNAPSHOT_PATH,
+      snapshotTtlSeconds: parseTtlSeconds(process.env.SNAPSHOT_TTL_SECONDS ?? '300'),
       payTo,
       facilitatorUrl: process.env.FACILITATOR_URL?.trim() || 'https://blocky402.com',
     },
@@ -171,6 +206,9 @@ export function redact(config) {
     service: {
       port: config.service.port,
       priceUsdc: config.service.priceUsdc,
+      treasuryPriceUsdc: config.service.treasuryPriceUsdc,
+      snapshotPath: config.service.snapshotPath,
+      snapshotTtlSeconds: config.service.snapshotTtlSeconds,
       payTo: config.service.payTo,
       facilitatorUrl: config.service.facilitatorUrl,
     },

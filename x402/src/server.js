@@ -1,17 +1,22 @@
 /**
  * ArcKeeper x402 — payment-gated service (seller side).
  *
- * Serves a treasury risk signal behind an x402 paywall and settles through
- * the Blocky402 facilitator.
+ * Sells the ArcKeeper treasury position behind an x402 paywall and settles
+ * through an x402 facilitator.
  *
  * Audit properties:
  *   - Price is declared by this server in the 402 response. No part of the
  *     request can influence it.
  *   - Settlement runs only after the handler produced a successful body, so
  *     a failing handler never charges the caller.
+ *   - The goods are checked *before* a price is quoted. A service that has
+ *     nothing to sell must not invite a payment for it.
  *   - The seller needs no private key at all, only a payout address.
  *   - Unhandled errors return a generic body; internals are logged locally,
  *     never echoed to the caller.
+ *
+ * The position data itself is not read here. The Python agent publishes it as
+ * a snapshot file (scripts/export_snapshot.py); this service only sells it.
  */
 
 import http from 'node:http';
@@ -24,6 +29,13 @@ import {
 import { registerExactEvmScheme } from '@x402/evm/exact/server';
 
 import { loadConfig, redact } from './config.js';
+import {
+  SNAPSHOT_FAULTS,
+  SnapshotError,
+  buildSignalPayload,
+  buildTreasuryPayload,
+  loadSnapshot,
+} from './snapshot.js';
 
 const config = loadConfig();
 
@@ -38,11 +50,32 @@ const facilitator = new HTTPFacilitatorClient({ url: config.service.facilitatorU
 const resourceServer = new x402ResourceServer(facilitator);
 registerExactEvmScheme(resourceServer);
 
-const routes = {
-  'GET /signal': {
+/**
+ * The catalogue.
+ *
+ * Price and body builder are declared together on purpose: a route table that
+ * lists prices separately from the code that produces the payload will
+ * eventually charge one tier for another tier's data.
+ */
+export const TIERS = {
+  '/signal': {
+    priceUsdc: config.service.priceUsdc,
+    build: buildSignalPayload,
+    description: 'ArcKeeper treasury risk signal (zone + recommended action)',
+  },
+  '/treasury': {
+    priceUsdc: config.service.treasuryPriceUsdc,
+    build: buildTreasuryPayload,
+    description: 'ArcKeeper full treasury position (balances, band, decision)',
+  },
+};
+
+const routes = {};
+for (const [routePath, tier] of Object.entries(TIERS)) {
+  routes[`GET ${routePath}`] = {
     accepts: {
       scheme: 'exact',
-      price: `$${config.service.priceUsdc}`,
+      price: `$${tier.priceUsdc}`,
       network: config.evm.network,
       payTo: config.evm.payTo,
       // How long the signed authorization stays valid. It has to cover
@@ -51,32 +84,13 @@ const routes = {
       // rejected signature rather than as an obvious timeout.
       maxTimeoutSeconds: 600,
     },
-    description: 'ArcKeeper treasury risk signal',
+    description: tier.description,
     mimeType: 'application/json',
-  },
-};
+  };
+}
 
 const paywalled = new x402HTTPResourceServer(resourceServer, routes);
 await paywalled.initialize();
-
-/**
- * The protected payload.
- *
- * Kept pure so it can be unit-tested without a facilitator, a chain or a
- * network. Swap this for the real treasury read when wiring up ArcKeeper.
- */
-export function buildSignal() {
-  return {
-    service: 'arckeeper-signal',
-    generatedAt: new Date().toISOString(),
-    treasury: {
-      band: { floorUsdc: '50.00', ceilingUsdc: '75.00' },
-      state: 'WARNING',
-    },
-    advice: 'REBALANCE',
-    note: 'Served after a verified x402 payment.',
-  };
-}
 
 /**
  * Wrap a Node IncomingMessage in the adapter the x402 HTTP layer expects.
@@ -110,6 +124,29 @@ function sendJson(res, status, payload, extraHeaders = {}) {
   res.end(body);
 }
 
+/**
+ * Refuse a request because the sellable data is not there.
+ *
+ * The reason goes to the log; the caller gets the status and a stable code.
+ * Internal paths and filesystem errors stay local.
+ */
+function refuseWithoutStock(res, err) {
+  const fault = SNAPSHOT_FAULTS[err?.reason] ?? SNAPSHOT_FAULTS.unreadable;
+  console.error(`[server] refusing request (${fault.code}): ${err?.message ?? err}`);
+  sendJson(
+    res,
+    fault.status,
+    {
+      error: fault.code,
+      hint:
+        fault.code === 'signal_stale'
+          ? 'The published snapshot is older than the configured TTL. Re-run scripts/export_snapshot.py.'
+          : 'No treasury snapshot is published yet. Run scripts/export_snapshot.py.',
+    },
+    { 'retry-after': '30' },
+  );
+}
+
 async function handle(req, res) {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
 
@@ -117,9 +154,41 @@ async function handle(req, res) {
     sendJson(res, 405, { error: 'method_not_allowed' }, { allow: 'GET' });
     return;
   }
-  if (url.pathname !== '/signal') {
+
+  // Free and unmetered: lets a buyer (or a demo audience) see that the service
+  // is up and what it charges, without paying for the privilege.
+  if (url.pathname === '/health') {
+    sendJson(res, 200, {
+      status: 'ok',
+      network: config.evm.network,
+      tiers: Object.fromEntries(
+        Object.entries(TIERS).map(([p, tier]) => [p, { priceUsdc: tier.priceUsdc }]),
+      ),
+      snapshotTtlSeconds: config.service.snapshotTtlSeconds,
+    });
+    return;
+  }
+
+  const tier = TIERS[url.pathname];
+  if (!tier) {
     sendJson(res, 404, { error: 'not_found' });
     return;
+  }
+
+  // Check the goods before quoting a price. Doing it in this order means a
+  // missing or stale snapshot can never reach the payment path at all, so
+  // there is no settlement to skip and nothing to refund.
+  let loaded;
+  try {
+    loaded = await loadSnapshot(config.service.snapshotPath, {
+      ttlSeconds: config.service.snapshotTtlSeconds,
+    });
+  } catch (err) {
+    if (err instanceof SnapshotError) {
+      refuseWithoutStock(res, err);
+      return;
+    }
+    throw err;
   }
 
   const context = {
@@ -154,7 +223,7 @@ async function handle(req, res) {
     return;
   }
 
-  const body = JSON.stringify(buildSignal());
+  const body = JSON.stringify(tier.build(loaded.snapshot));
   const headers = { 'content-type': 'application/json' };
 
   try {
@@ -188,5 +257,9 @@ const server = http.createServer((req, res) => {
 
 server.listen(config.service.port, () => {
   console.log('[server] config:', JSON.stringify(redact(config)));
-  console.log(`[server] listening on http://localhost:${config.service.port}/signal`);
+  for (const [routePath, tier] of Object.entries(TIERS)) {
+    console.log(
+      `[server] selling http://localhost:${config.service.port}${routePath} for $${tier.priceUsdc}`,
+    );
+  }
 });

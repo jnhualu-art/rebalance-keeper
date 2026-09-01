@@ -4,3 +4,7 @@ node_modules/
 .env
 .env.local
 scripts/*.json
+
+# Snapshots are runtime output of scripts/export_snapshot.py, rewritten on
+# every publish. The service refuses to sell one older than the TTL anyway.
+state/

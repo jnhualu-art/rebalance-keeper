@@ -91,7 +91,11 @@ if (isCli) {
   }
 
   const agent = createAgent(config);
-  const url = process.argv[2] ?? `http://localhost:${config.service.port}/signal`;
+  // Accept either a bare tier name ("treasury") or a full URL.
+  const target = process.argv[2] ?? '/signal';
+  const url = /^https?:\/\//.test(target)
+    ? target
+    : `http://localhost:${config.service.port}${target.startsWith('/') ? target : `/${target}`}`;
 
   console.log('payer:  ', agent.payerAddress);
   console.log('ceiling: $' + config.client.maxPaymentUsdc);
@@ -100,6 +104,15 @@ if (isCli) {
   try {
     const result = await buyResource(agent, url, config.client.timeoutMs);
     console.log(JSON.stringify(result, null, 2));
+    if (result.status === 503) {
+      // Not a payment failure: the seller had nothing to sell, so nothing was
+      // spent. Say so, otherwise a 503 looks like a burned payment.
+      console.error(
+        '\nnote: 503 means the seller refused before quoting a price. ' +
+          'No payment was settled. Refresh the snapshot and retry.',
+      );
+    }
+    if (!result.ok) process.exitCode = 1;
   } catch (err) {
     // Never echo the key: print the message only.
     console.error('request failed:', err?.message ?? err);
