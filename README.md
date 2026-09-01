@@ -1,203 +1,121 @@
-# RebalanceKeeper
+# ArcKeeper
 
-> Autonomous DeFi agent that monitors your Aave V3 position and auto-rebalances when the health factor drops — executed entirely through KeeperHub MCP.
+> An autonomous agent that manages a USDC treasury on Arc (Circle's stablecoin-native L1) — and sells what it knows through an x402 paywall, so the machine that watches the money also earns it.
 
-[![Hackathon](https://img.shields.io/badge/KeeperHub-Agents%20Onchain-blue)](https://dorahacks.io/hackathon/agents-onchain/detail)
-[![Network](https://img.shields.io/badge/Network-Ethereum%20Sepolia-orange)](https://sepolia.etherscan.io)
-[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![Hackathon](https://img.shields.io/badge/Encode%20Club-Arc%20Programmable%20Money-blue)](https://www.encode.club/)
+[![Network](https://img.shields.io/badge/Treasury-Arc%20Testnet-orange)](https://testnet.arcscan.app)
+[![Paywall](https://img.shields.io/badge/x402-USDC%20via%20EIP--3009-1f6feb)](https://x402.org)
+[![Tests](https://img.shields.io/badge/tests-148%20passing-3fb950)](#testing)
 
-## How It Works
+ArcKeeper is RebalanceKeeper re-architected for the Agentic Economy. The original
+agent watched an Aave position; this one owns a USDC treasury, rebalances it
+on-chain with signed transactions and no human in the loop, and monetizes its
+own risk signal with per-request micropayments.
+
+## How it works
 
 ```
-  ┌──────────────────────────────────────────┐
-  │            Agent (Python)                │
-  │                                          │
-  │  Monitor ──→ Evaluate ──→ Decide        │
-  │                  │                      │
-  │           HF < threshold?               │
-  │           ├─ YES → repay or supply      │
-  │           └─ NO  → keep monitoring      │
-  └──────────────┬───────────────────────────┘
-                 │
-                 ▼
-  ┌──────────────────────────────────────────┐
-  │         KeeperHub MCP Server            │
-  │                                          │
-  │  execute_protocol_action                 │
-  │  ├─ aave-v3/repay   ← reduce debt       │
-  │  ├─ aave-v3/supply  ← add collateral    │
-  │  └─ aave-v3/get-user-account-data       │
-  │                                          │
-  │  execute_check_and_execute (conditional) │
-  │  + retry · gas estimation · MEV protect │
-  └──────────────┬───────────────────────────┘
-                 │
-                 ▼
-  ┌──────────────────────────────────────────┐
-  │     Ethereum (Sepolia / Mainnet)        │
-  │     Aave V3 Pool — real transactions     │
-  └──────────────────────────────────────────┘
+ Arc Testnet (chainId 5042002)              x402 gateway (Node)          Base Sepolia
+ ┌─────────────────────────────┐           ┌──────────────────────┐    ┌──────────────────┐
+ │  Treasury agent (Python)    │ snapshot  │  GET /signal  $0.001 │    │                  │
+ │  read → decide → act        ├──────────▶│  GET /treasury $0.005│    │  USDC            │
+ │  signed ERC-20 sweeps/topups│  atomic   │  402 → EIP-3009 sign │───▶│  settlement      │
+ │  floor 50 / ceiling 75      │  write    │  facilitator settles │    │  (facilitator    │
+ │  SAFE/WARNING/DANGER/CRIT   │           │  payer pays no gas   │    │   pays the gas)  │
+ └─────────────────────────────┘           └──────────────────────┘    └──────────────────┘
+        autonomous rebalancing               sells the decision          programmable money
 ```
 
-## Features
+One evaluation, one truth: the watch loop publishes the snapshot from the same
+`run_once()` that acts, so the decision sold through `/signal` is *literally
+the decision the agent acted on* — not a second, independent reading.
 
-- **Zero-dependency** — Pure Python stdlib, no web3/ethers.js bloat
-- **MCP-native** — Talks directly to KeeperHub MCP over Streamable HTTP
-- **Conditional execution** — Uses `execute_check_and_execute` for atomic check-then-act
-- **Full audit trail** — Every monitor check and trigger logged as JSONL with tx hashes
-- **Idempotent** — Retries with idempotency keys, no duplicate transactions
-- **Configurable** — Threshold, repay fraction, interval all adjustable
+## What is actually on chain
 
-## Quick Start
+| Proof | Network | Tx |
+|---|---|---|
+| Agent sweeps 5 USDC operational → reserve | Arc | `0xe24a56a208913fee980d339029b733309c0ddcd86de3ce4be3aae486a4b8664` |
+| Agent tops up 5 USDC reserve → operational | Arc | `0xeae89dc2c4fd37ce4c1b812776755d3f8d48d7d89abdd523d935d888b75740b3` |
+| `/signal` purchase settled ($0.001) | Base Sepolia | `0x13ba2afb5114a5862b19781b4f05e74d4a28ee6d5ecdc33a783c6a584ea272fc` |
+| `/treasury` purchase settled ($0.005) | Base Sepolia | `0xa29fa55676450e071d63495560b68002aacceaabb1201360f0da059702a19255` |
 
-### 1. Clone & configure
+The agent's treasury lives on Arc; the x402 paywall settles on Base Sepolia
+through the reference facilitator (`x402.org/facilitator`), which is where the
+ecosystem's facilitators are today. Arc-native settlement is the obvious next
+step the moment an Arc facilitator exists — the gateway only needs a URL.
+
+## Quick start
 
 ```bash
 git clone git@github.com:jnhualu-art/rebalance-keeper.git
 cd rebalance-keeper
-cp .env.example .env
-# Edit .env — add your KeeperHub API key (kh_ prefix)
+python -m venv .venv && .venv/Scripts/pip install -r requirements.txt  # python-dotenv only
+
+# Terminal 1 — keep the goods on the shelf (publishes every 10s)
+.venv/Scripts/python.exe scripts/export_snapshot.py --watch --interval 10
+
+# Terminal 2 — the paywall + operator console
+cd x402 && cp .env.example .env && node src/server.js
+#   console:  http://localhost:3402/dashboard
+
+# Terminal 3 — be a customer
+node src/client.js /signal     # 402 → sign → settle → data, $0.001
+node src/client.js /treasury   # full position, $0.005
 ```
 
-### 2. Install
+The agent itself:
 
 ```bash
-pip install -r requirements.txt  # Only python-dotenv needed
+python -m src.main arc-status                        # live treasury report
+python -m src.main arc-rebalance --watch             # autonomous loop; each cycle
+                                                     # also publishes the snapshot
+python -m src.main arc-rebalance --sweep 5           # signed manual sweep
+python -m src.main arc-rebalance --topup 5           # signed manual top-up
 ```
 
-### 3. Check your position
+## The paywall's audit properties
 
-```bash
-python -m src.main status
-```
+- **Refuse before quoting.** The snapshot is loaded and freshness-checked
+  *before* the payment path. Stale or missing goods → 503, no 402, nothing to
+  refund. Verified by backdating the snapshot: balance unchanged across the
+  refusal.
+- **The price is the server's word.** Declared in the 402; no part of the
+  request can move it. A tier's price and its payload builder live in one
+  object, so a tier cannot charge one price and serve another's data.
+- **A failing handler never charges.** Settlement runs only after the handler
+  produced a successful body.
+- **The payer needs USDC, not gas.** EIP-3009 `transferWithAuthorization`,
+  settled by the facilitator relayer.
+- **Every settlement attempt is booked.** Success or failure, with the tx hash
+  and error reason, appended to `state/settlements.json`. An audit trail that
+  only records wins is marketing, not accounting.
 
-Output:
-```
-============================================================
-  RebalanceKeeper — Position Status
-============================================================
-  Wallet:    0x1573C3d151200922375bC48012BB1f232B2cF531
-  Chain:     Ethereum Sepolia (id=11155111)
-  Pool:      0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951
-────────────────────────────────────────────────────────────
-  Health Factor:        1.8234
-  Total Collateral:     320000000000 (base units)
-  Total Debt:           120000000 (base units)
-  Status: ✓ SAFE (threshold: 1.5)
-```
+## Testing
 
-### 4. Set up a test position (Sepolia)
+148 tests: 111 Python (decision model, publisher contract, wallet backends,
+client) and 37 Node (snapshot schema/TTL/clock-skew, settlement ledger,
+config validation). `node --test` in `x402/`, `pytest` at the root.
 
-```bash
-# Supply 0.01 WETH as collateral, borrow 10 USDC
-python -m src.main setup --supply-amount 0.01 --borrow-amount 10
-```
+## Repository map
 
-### 5. Run the monitor
+| Path | What it is |
+|---|---|
+| `src/` | The Python agent: Arc client (stdlib-only JSON-RPC), decision model, signed execution, snapshot publisher |
+| `scripts/export_snapshot.py` | Standalone snapshot refresher (`--watch`) |
+| `x402/src/` | The gateway: config, snapshot validation, tier catalogue, settlement ledger |
+| `x402/src/server.js` / `client.js` | Seller and buyer sides of the x402 paywall |
+| `dashboard/index.html` | Operator console served by the gateway itself |
+| `docs/`, `CHECKPOINT2_SUBMISSION_READY.md` | Hackathon checkpoint history |
 
-```bash
-python -m src.main monitor
-```
+## Links
 
-```
-Monitor started. Wallet: 0x1573...C531
-  Chain: Ethereum Sepolia (id=11155111)
-  Threshold: HF < 1.5
-  Interval: 30s
-────────────────────────────────────────────────────────
-[2026-07-17T09:30:00Z] HF=1.8234 Collateral=320000000000 Debt=120000000 → SAFE
-[2026-07-17T09:30:30Z] HF=1.7512 Collateral=320000000000 Debt=120000000 → SAFE
-[2026-07-17T09:31:00Z] HF=1.4201 Collateral=320000000000 Debt=120000000 → UNSAFE
+- **GitHub**: https://github.com/jnhualu-art/rebalance-keeper/tree/arc-migration
+- **Arc explorer**: https://testnet.arcscan.app/address/0x57047A430c4cfe335674e6bAD81b4D5F68ff505c
+- **x402 protocol**: https://x402.org
 
-============================================================
-  REBALANCE TRIGGERED
-  Action: REPAY
-  Asset:  0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8 (USDC)
-  Amount: 1.800000
-  Reason: HF=1.4201 < 1.50. Repay 15% of USDC debt.
-============================================================
+## Author
 
-  ✓ TX confirmed: 0xabc123...
-  ✓ Explorer: https://sepolia.etherscan.io/tx/0xabc123...
-```
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `python -m src.main status` | Show current Aave V3 position |
-| `python -m src.main once` | Run a single health check |
-| `python -m src.main monitor` | Continuous monitoring (default) |
-| `python -m src.main setup` | Create a test position (supply + borrow) |
-| `python -m src.main supply 0.01` | Manual supply |
-| `python -m src.main borrow 10` | Manual borrow |
-| `python -m src.main repay 5` | Manual repay |
-| `python -m src.main audit` | Show audit log summary |
-
-## Configuration
-
-All config in `.env` or environment variables:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KEEPERHUB_API_KEY` | — | API key from app.keeperhub.com (required) |
-| `WALLET_ADDRESS` | — | Your KeeperHub Turnkey wallet address |
-| `CHAIN_ID` | `11155111` | Sepolia testnet. Use `1` for mainnet |
-| `HEALTH_FACTOR_THRESHOLD` | `1.5` | Trigger rebalance below this |
-| `REPAY_FRACTION` | `0.15` | Fraction of debt to repay per trigger |
-| `MONITOR_INTERVAL` | `30` | Seconds between checks |
-
-## Audit Trail
-
-Every action is logged to `logs/audit.jsonl`:
-
-```json
-{
-  "timestamp": "2026-07-17T09:31:00Z",
-  "event_type": "trigger",
-  "trigger": "health_factor=1.4201",
-  "decision": "repay 1.800000",
-  "execution": {
-    "tx_hash": "0xabc123...",
-    "gas_used": "142000",
-    "status": "success",
-    "explorer_link": "https://sepolia.etherscan.io/tx/0xabc123..."
-  }
-}
-```
-
-View with: `python -m src.main audit`
-
-## Architecture
-
-| Layer | Technology |
-|-------|-----------|
-| Agent | Pure Python (stdlib only) |
-| MCP Client | Streamable HTTP transport (urllib) |
-| Execution | KeeperHub MCP — `execute_protocol_action`, `execute_check_and_execute` |
-| Protocol | Aave V3 (supply, borrow, repay, withdraw) |
-| Chain | Ethereum Sepolia (testnet) / Mainnet |
-| Wallet | Turnkey non-custodial (via KeeperHub) |
-
-## Supported Aave V3 Actions
-
-| Action | Type | Description |
-|--------|------|-------------|
-| `aave-v3/get-user-account-data` | Read | Health factor, collateral, debt |
-| `aave-v3/get-user-reserve-data` | Read | Per-asset position |
-| `aave-v3/supply` | Write | Supply collateral |
-| `aave-v3/borrow` | Write | Borrow against collateral |
-| `aave-v3/repay` | Write | Repay debt |
-| `aave-v3/withdraw` | Write | Withdraw collateral |
-| `aave-v3/set-collateral` | Write | Toggle collateral flag |
-
-## Hackathon
-
-- **Event**: [KeeperHub Agents Onchain Hackathon](https://dorahacks.io/hackathon/agents-onchain/detail)
-- **BUIDL**: [#47135](https://dorahacks.io/buidl/47135)
-- **Category**: DeFi / AI Agents
-- **Dates**: July 27 — August 13, 2026
-
-## License
-
-MIT
+**华Dee (Lu Junhua)** — Web3 / smart-contract engineer.
+Maple Finance syrup.fi lending protocol (ERC-4626, upgradeable proxies),
+Craze Labs craze.fun EIP-712 relayer (2M gasless transactions).
+Encode Club Arc Programmable Money Hackathon — August 2026.
