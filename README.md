@@ -36,8 +36,8 @@ the decision the agent acted on* — not a second, independent reading.
 |---|---|---|
 | Agent sweeps 5 USDC operational → reserve | Arc | `0xe24a56a208913fee980d339029b733309c0ddcd86de3ce4be3aae486a4b8664` |
 | Agent tops up 5 USDC reserve → operational | Arc | `0xeae89dc2c4fd37ce4c1b812776755d3f8d48d7d89abdd523d935d888b75740b3` |
-| `/signal` purchase settled ($0.001) | Base Sepolia | `0x13ba2afb5114a5862b19781b4f05e74d4a28ee6d5ecdc33a783c6a584ea272fc` |
-| `/treasury` purchase settled ($0.005) | Base Sepolia | `0xa29fa55676450e071d63495560b68002aacceaabb1201360f0da059702a19255` |
+| `/signal` purchase settled ($0.001 → revenue wallet) | Base Sepolia | `0x5bd2da0ca3aa9e7e5443250766d42227777721f5d3059ab3a48bc1b774a49bcc` |
+| `/treasury` purchase settled ($0.005 → revenue wallet) | Base Sepolia | `0x7a6c7512f6763ae57977ec5c0647fcd6091a01943c1ce9d2c78493085fd93068` |
 
 The agent's treasury lives on Arc; the x402 paywall settles on Base Sepolia
 through the reference facilitator (`x402.org/facilitator`), which is where the
