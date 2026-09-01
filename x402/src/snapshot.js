@@ -16,7 +16,13 @@
 
 import { readFile } from 'node:fs/promises';
 
-export const SNAPSHOT_SCHEMA = 'arckeeper-treasury-snapshot/1';
+// v2 added `last_action` (what the agent just did). v1 is still accepted:
+// bumping the version must not turn an already-published file into a 503.
+export const SUPPORTED_SCHEMAS = [
+  'arckeeper-treasury-snapshot/1',
+  'arckeeper-treasury-snapshot/2',
+];
+export const SNAPSHOT_SCHEMA = 'arckeeper-treasury-snapshot/2';
 export const DEFAULT_TTL_SECONDS = 300;
 
 export class SnapshotError extends Error {
@@ -52,9 +58,9 @@ export function parseSnapshot(document, { now = Date.now(), ttlSeconds = DEFAULT
     throw new SnapshotError('snapshot must be a JSON object', { reason: 'malformed' });
   }
 
-  if (document.schema !== SNAPSHOT_SCHEMA) {
+  if (!SUPPORTED_SCHEMAS.includes(document.schema)) {
     throw new SnapshotError(
-      `unsupported snapshot schema: expected ${SNAPSHOT_SCHEMA}, got ${String(document.schema)}`,
+      `unsupported snapshot schema: expected one of ${SUPPORTED_SCHEMAS.join(', ')}, got ${String(document.schema)}`,
       { reason: 'schema_mismatch', detail: String(document.schema) },
     );
   }
@@ -156,6 +162,12 @@ export function buildSignalPayload(snapshot) {
       isFiniteNumber(treasury.ceiling_usdc) && isFiniteNumber(treasury.usdc_balance)
         ? Number((treasury.ceiling_usdc - treasury.usdc_balance).toFixed(6))
         : null,
+    // Deliberately just the type and the outcome: whether the agent has acted
+    // since the last reading is useful, the transaction details are what the
+    // full tier is for.
+    lastAction: snapshot.last_action
+      ? { type: snapshot.last_action.type ?? null, status: snapshot.last_action.status ?? null }
+      : null,
     servedAfter: 'verified x402 payment',
   };
 }
@@ -173,6 +185,9 @@ export function buildTreasuryPayload(snapshot) {
     explorer: snapshot.explorer ?? null,
     treasury: snapshot.treasury ?? null,
     decision: snapshot.decision ?? null,
+    // What the agent last did, including the transaction hash when there is
+    // one. Absent on v1 snapshots, which predate the field.
+    lastAction: snapshot.last_action ?? null,
     servedAfter: 'verified x402 payment',
   };
 }

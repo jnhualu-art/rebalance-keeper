@@ -83,6 +83,26 @@ The snapshot expires after `SNAPSHOT_TTL_SECONDS` (300s by default). Re-run
 the export to keep the service sellable — in a live deployment this is the
 job of a timer, not of a human.
 
+### Keeping the snapshot fresh
+
+Two ways, pick one:
+
+- **Standalone refresher** (no rebalancing, just keeps the goods on the
+  shelf): `scripts/export_snapshot.py --watch --interval 10`. Exponential
+  backoff on RPC errors, Ctrl-C exits cleanly.
+- **The agent's own loop**: `arc-rebalance --watch` publishes the snapshot
+  after every `run_once()`. This is the better default, because the
+  decision sold through `/signal` is then *literally the decision the
+  agent acted on* — the same `run_once()` result feeds both, at zero
+  extra RPC cost. It also records the executed transfer (`last_action`,
+  tx hash included) into the paid payload.
+
+A design note on the silent-fallback trap this exposed: with
+`ARC_WALLET_ADDRESS` unset, `config.ARC_WALLET_ADDRESS` used to fall back
+to the Sepolia wallet, and querying it on Arc returns balance 0 — which
+would be sold to customers as "treasury critical". The publisher now
+refuses to publish without an explicit Arc wallet, verified by test.
+
 ## Known environment pitfalls
 
 Three non-obvious traps were hit installing these dependencies on this
@@ -130,6 +150,12 @@ hour makes the service return `503 {"error":"signal_stale"}` instead of a 402,
 and the payer balance is unchanged across the attempt (19.993 USDC before and
 after). A client that sees a 503 gets an explicit note that nothing was
 settled, so a refused sale never looks like a lost payment.
+
+**Serving under continuous refresh was verified too.** With
+`export_snapshot.py --watch --interval 10` running alongside the service, a
+purchase returned a snapshot generated seconds earlier and settled on chain
+(`0x7a30a2639544ad448144c622d66ca6c12cbca7a829dcecc09146e7b31783575b`) —
+the goods stay on the shelf without anyone re-running the export by hand.
 
 Two things worth knowing before debugging a failed payment.
 

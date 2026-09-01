@@ -44,6 +44,7 @@ from src.arc_executor import ArcExecutor, ArcExecutorError
 from src.arc_rebalancer import ArcRebalancer
 from src.arc_wallet_backends import get_backend
 from src import arc_position
+from src import snapshot_publisher
 
 
 def get_client() -> KeeperHubClient:
@@ -237,6 +238,8 @@ def cmd_arc_rebalance(args):
         else:
             print(f"\n⮕ Auto rebalance (read → decide → act) ...")
             res = rebalancer.run_once(dry_run=dry_run)
+            # Before `res` is narrowed to the action result below.
+            _publish_snapshot(res)
             if res.get("error"):
                 print(f"  ✗ {res['error']}")
                 return
@@ -251,6 +254,24 @@ def cmd_arc_rebalance(args):
         return
 
     _print_rebalance_result(res, dry_run)
+
+
+def _publish_snapshot(result: dict) -> bool:
+    """Offer the cycle we just ran to the x402 gateway.
+
+    Reuses the same evaluation, so the decision a paying consumer buys is the
+    decision the agent acted on - not a second reading taken moments later.
+
+    Never fatal: rebalancing is the job, selling the reading is a side effect.
+    A failure here must not take the rebalance loop down with it.
+    """
+    try:
+        snapshot = snapshot_publisher.snapshot_from_result(result)
+        snapshot_publisher.publish(snapshot_publisher.DEFAULT_OUT, snapshot)
+        return True
+    except Exception as exc:  # noqa: BLE001 - publishing must never break the loop
+        print(f"  ! snapshot publish skipped: {exc}")
+        return False
 
 
 def _run_watch(rebalancer, dry_run: bool, interval: int, max_errors: int = 5):
@@ -270,6 +291,8 @@ def _run_watch(rebalancer, dry_run: bool, interval: int, max_errors: int = 5):
         try:
             res = rebalancer.run_once(dry_run=dry_run)
             if res.get("error"):
+                # The action failed, but the position itself is still a valid
+                # reading, so it is still worth publishing.
                 print(f"  ✗ {res['error']}")
             else:
                 decision = res.get("decision")
@@ -277,6 +300,7 @@ def _run_watch(rebalancer, dry_run: bool, interval: int, max_errors: int = 5):
                     print(f"  ✓ {decision.zone}: {decision.reason}")
                 else:
                     _print_rebalance_result(res.get("action") or {}, dry_run)
+            _publish_snapshot(res)
             errors = 0
         except Exception as e:  # noqa: BLE001 — keep the loop alive on transient failures
             errors += 1

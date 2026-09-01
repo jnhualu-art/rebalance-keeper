@@ -86,11 +86,27 @@ test('a clock-skewed future timestamp is tolerated rather than called stale', ()
 });
 
 test('an unrecognised schema is refused instead of guessed at', () => {
-  const doc = makeSnapshot({ schema: 'arckeeper-treasury-snapshot/2' });
+  // /99 rather than /2: v2 is a supported version, so using it here would
+  // assert the wrong thing the moment the schema is bumped again.
+  const doc = makeSnapshot({ schema: 'arckeeper-treasury-snapshot/99' });
   assert.throws(
     () => parseSnapshot(doc, { now: NOW }),
     (err) => err instanceof SnapshotError && err.reason === 'schema_mismatch',
   );
+});
+
+test('v1 snapshots are still accepted after the bump to v2', () => {
+  // Otherwise an already-published file turns into a 503 the instant the
+  // producer is upgraded, for no fault of the data.
+  const doc = makeSnapshot({ schema: 'arckeeper-treasury-snapshot/1' });
+  assert.doesNotThrow(() => parseSnapshot(doc, { now: NOW }));
+});
+
+test('a v1 snapshot has no last_action and still builds both tiers', () => {
+  const doc = makeSnapshot({ schema: 'arckeeper-treasury-snapshot/1' });
+  delete doc.last_action;
+  assert.equal(buildTreasuryPayload(doc).lastAction, null);
+  assert.equal(buildSignalPayload(doc).lastAction, null);
 });
 
 test('a missing or non-numeric balance is refused as malformed', () => {
@@ -193,4 +209,42 @@ test('an infinite health ratio survives the JSON round-trip as null', () => {
   const payload = buildTreasuryPayload(doc);
   assert.equal(payload.treasury.health, null);
   assert.doesNotThrow(() => buildSignalPayload(doc));
+});
+
+test('the full tier carries the agent last action including its tx hash', () => {
+  const doc = makeSnapshot({
+    last_action: {
+      type: 'sweep',
+      amount_usdc: 2.5,
+      tx_hash: '0xabc123',
+      status: 'success',
+      dry_run: false,
+    },
+  });
+  const payload = buildTreasuryPayload(doc);
+  assert.equal(payload.lastAction.tx_hash, '0xabc123');
+  assert.equal(payload.lastAction.status, 'success');
+});
+
+test('the cheap tier reports that the agent acted, but not the tx hash', () => {
+  // The transaction belongs to the paid tier. Knowing that a sweep happened
+  // is fine for free-ish money; being able to follow it on a block explorer
+  // is what the full tier sells.
+  const doc = makeSnapshot({
+    last_action: { type: 'sweep', amount_usdc: 2.5, tx_hash: '0xabc123', status: 'success' },
+  });
+  const payload = buildSignalPayload(doc);
+  assert.equal(payload.lastAction.type, 'sweep');
+  assert.equal(payload.lastAction.status, 'success');
+  assert.equal(payload.lastAction.tx_hash, undefined);
+  assert.ok(!JSON.stringify(payload).includes('0xabc123'));
+});
+
+test('a failed action is published as an error, not silently dropped', () => {
+  const doc = makeSnapshot({
+    last_action: { type: 'topup', status: 'error', error: 'reserve wallet not set' },
+  });
+  const payload = buildTreasuryPayload(doc);
+  assert.equal(payload.lastAction.status, 'error');
+  assert.equal(payload.lastAction.error, 'reserve wallet not set');
 });
